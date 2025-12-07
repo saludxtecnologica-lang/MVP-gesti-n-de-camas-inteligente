@@ -1,39 +1,36 @@
 import React from 'react';
-import { X, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
-
-type AlertType = 'success' | 'error' | 'warning' | 'info';
+import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
 interface AlertProps {
-  tipo: AlertType;
+  tipo: 'success' | 'error' | 'info';
   mensaje: string;
   onClose?: () => void;
 }
 
-const icons = {
-  success: CheckCircle,
-  error: AlertCircle,
-  warning: AlertTriangle,
-  info: Info
-};
-
 export function Alert({ tipo, mensaje, onClose }: AlertProps) {
-  const Icon = icons[tipo];
+  const getIcon = () => {
+    switch (tipo) {
+      case 'success':
+        return <CheckCircle size={20} />;
+      case 'error':
+        return <AlertCircle size={20} />;
+      case 'info':
+      default:
+        return <Info size={20} />;
+    }
+  };
 
   return (
     <div className={`alert alert-${tipo}`}>
-      <Icon size={20} />
-      <span style={{ flex: 1 }}>{mensaje}</span>
+      <div className="alert-icon">
+        {getIcon()}
+      </div>
+      <div className="alert-content">
+        {mensaje}
+      </div>
       {onClose && (
-        <button 
-          onClick={onClose}
-          style={{ 
-            background: 'none', 
-            border: 'none', 
-            cursor: 'pointer',
-            padding: '4px'
-          }}
-        >
-          <X size={16} />
+        <button className="alert-close" onClick={onClose} aria-label="Cerrar">
+          <X size={18} />
         </button>
       )}
     </div>

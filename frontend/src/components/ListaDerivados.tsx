@@ -6,8 +6,8 @@ interface ListaDerivadosProps {
   items: DerivadoItem[];
   hospitalActual: Hospital | null;
   onVerPaciente: (paciente: Paciente) => void;
-  onAceptar: (pacienteId: number) => void;
-  onRechazar: (pacienteId: number) => void;
+  onAceptar: (pacienteId: string) => void;
+  onRechazar: (pacienteId: string) => void;
   onRefresh: () => void;
 }
 
@@ -65,48 +65,48 @@ export function ListaDerivados({
       ) : (
         <div className="derivados-grid">
           {items.map((item, index) => (
-            <div key={item.paciente.id} className="derivado-card">
+            <div key={item.paciente?.id || item.paciente_id || index} className="derivado-card">
               <div className="derivado-header">
                 <span className="prioridad-badge">#{index + 1}</span>
                 <span className="prioridad-puntos">{item.prioridad} pts</span>
               </div>
               
               <div className="derivado-paciente">
-                <h3>{item.paciente.nombre}</h3>
-                <span className="run">{item.paciente.run}</span>
+                <h3>{item.paciente?.nombre || item.nombre}</h3>
+                <span className="run">{item.paciente?.run || item.run}</span>
               </div>
 
               <div className="derivado-origen">
                 <Building2 size={14} />
-                <span>Desde: <strong>{item.hospital_origen.nombre}</strong></span>
+                <span>Desde: <strong>{item.hospital_origen?.nombre || item.hospital_origen_nombre}</strong></span>
               </div>
 
               <div className="derivado-info">
                 <div className="info-item">
                   <label>Complejidad</label>
-                  <span className={`badge badge-complejidad-${item.paciente.complejidad}`}>
-                    {item.paciente.complejidad.toUpperCase()}
+                  <span className={`badge badge-complejidad-${item.paciente?.complejidad || 'ninguna'}`}>
+                    {(item.paciente?.complejidad || 'ninguna').toUpperCase()}
                   </span>
                 </div>
                 <div className="info-item">
                   <label>Edad</label>
-                  <span>{item.paciente.edad} años</span>
+                  <span>{item.paciente?.edad || 'N/A'} años</span>
                 </div>
                 <div className="info-item">
                   <label>En lista</label>
                   <span className="tiempo">
                     <Clock size={12} />
-                    {formatTiempoEspera(item.tiempo_en_lista_minutos)}
+                    {formatTiempoEspera(item.tiempo_en_lista_minutos || item.tiempo_en_lista_min || 0)}
                   </span>
                 </div>
               </div>
 
               <div className="derivado-motivo">
                 <label>Motivo de derivación:</label>
-                <p>{item.motivo}</p>
+                <p>{item.motivo || item.motivo_derivacion}</p>
               </div>
 
-              {item.paciente.tipo_aislamiento !== 'ninguno' && (
+              {item.paciente?.tipo_aislamiento && item.paciente.tipo_aislamiento !== 'ninguno' && (
                 <div className="derivado-aislamiento">
                   <span className="badge badge-warning">
                     Aislamiento: {item.paciente.tipo_aislamiento.replace('_', ' ')}
@@ -115,21 +115,23 @@ export function ListaDerivados({
               )}
 
               <div className="derivado-actions">
-                <button
-                  className="btn btn-sm btn-secondary"
-                  onClick={() => onVerPaciente(item.paciente)}
-                >
-                  <Eye size={14} /> Ver detalle
-                </button>
+                {item.paciente && (
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    onClick={() => onVerPaciente(item.paciente)}
+                  >
+                    <Eye size={14} /> Ver detalle
+                  </button>
+                )}
                 <button
                   className="btn btn-sm btn-success"
-                  onClick={() => onAceptar(item.paciente.id)}
+                  onClick={() => onAceptar(item.paciente?.id || item.paciente_id || '')}
                 >
                   <Check size={14} /> Aceptar
                 </button>
                 <button
                   className="btn btn-sm btn-danger"
-                  onClick={() => onRechazar(item.paciente.id)}
+                  onClick={() => onRechazar(item.paciente?.id || item.paciente_id || '')}
                 >
                   <X size={14} /> Rechazar
                 </button>

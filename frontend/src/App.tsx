@@ -44,7 +44,6 @@ function App() {
     cargarDerivados,
     cargarConfiguracion,
     refrescarDatos,
-    setError,
     clearError
   } = useApp();
 
@@ -59,24 +58,27 @@ function App() {
     const grupos: Record<string, { servicio: string; tipo: TipoServicioEnum; salas: Record<string, Cama[]> }> = {};
     
     camas.forEach(cama => {
-      const servicio = cama.sala?.servicio;
-      if (!servicio) return;
+      // Usar servicio_nombre y servicio_tipo que vienen del backend
+      const servicioNombre = cama.servicio_nombre || cama.sala?.servicio?.nombre;
+      const servicioTipo = cama.servicio_tipo || cama.sala?.servicio?.tipo;
       
-      if (filtroServicio !== 'todos' && servicio.tipo !== filtroServicio) return;
+      if (!servicioNombre || !servicioTipo) return;
       
-      if (!grupos[servicio.nombre]) {
-        grupos[servicio.nombre] = {
-          servicio: servicio.nombre,
-          tipo: servicio.tipo as TipoServicioEnum,
+      if (filtroServicio !== 'todos' && servicioTipo !== filtroServicio) return;
+      
+      if (!grupos[servicioNombre]) {
+        grupos[servicioNombre] = {
+          servicio: servicioNombre,
+          tipo: servicioTipo as TipoServicioEnum,
           salas: {}
         };
       }
       
-      const salaNombre = cama.sala?.nombre || 'Sin sala';
-      if (!grupos[servicio.nombre].salas[salaNombre]) {
-        grupos[servicio.nombre].salas[salaNombre] = [];
+      const salaNombre = cama.sala?.nombre || `Sala ${cama.sala_id?.slice(0, 8) || 'Sin sala'}`;
+      if (!grupos[servicioNombre].salas[salaNombre]) {
+        grupos[servicioNombre].salas[salaNombre] = [];
       }
-      grupos[servicio.nombre].salas[salaNombre].push(cama);
+      grupos[servicioNombre].salas[salaNombre].push(cama);
     });
     
     return grupos;
@@ -86,8 +88,9 @@ function App() {
   const tiposServicio = React.useMemo(() => {
     const tipos = new Set<TipoServicioEnum>();
     camas.forEach(cama => {
-      if (cama.sala?.servicio?.tipo) {
-        tipos.add(cama.sala.servicio.tipo as TipoServicioEnum);
+      const tipo = cama.servicio_tipo || cama.sala?.servicio?.tipo;
+      if (tipo) {
+        tipos.add(tipo as TipoServicioEnum);
       }
     });
     return Array.from(tipos);
@@ -109,7 +112,7 @@ function App() {
     setModalActual('reevaluar');
   }, []);
 
-  const handleCompletarTraslado = useCallback(async (pacienteId: number) => {
+  const handleCompletarTraslado = useCallback(async (pacienteId: string) => {
     try {
       await api.completarTraslado(pacienteId);
       showAlert('success', 'Traslado completado exitosamente');
@@ -119,7 +122,7 @@ function App() {
     }
   }, [hospitalActual, cargarCamas, showAlert]);
 
-  const handleCancelarTraslado = useCallback(async (pacienteId: number) => {
+  const handleCancelarTraslado = useCallback(async (pacienteId: string) => {
     if (!confirm('¿Está seguro de cancelar este traslado?')) return;
     try {
       await api.cancelarTraslado(pacienteId);
@@ -133,7 +136,7 @@ function App() {
     }
   }, [hospitalActual, cargarCamas, cargarListaEspera, showAlert]);
 
-  const handleBuscarNuevaCama = useCallback(async (pacienteId: number) => {
+  const handleBuscarNuevaCama = useCallback(async (pacienteId: string) => {
     try {
       await api.buscarCamaPaciente(pacienteId);
       showAlert('info', 'Paciente agregado a la lista de búsqueda de cama');
@@ -146,7 +149,7 @@ function App() {
     }
   }, [hospitalActual, cargarCamas, cargarListaEspera, showAlert]);
 
-  const handleIniciarAlta = useCallback(async (pacienteId: number) => {
+  const handleIniciarAlta = useCallback(async (pacienteId: string) => {
     try {
       await api.iniciarAlta(pacienteId);
       showAlert('success', 'Alta iniciada');
@@ -156,7 +159,7 @@ function App() {
     }
   }, [hospitalActual, cargarCamas, showAlert]);
 
-  const handleDarAlta = useCallback(async (pacienteId: number) => {
+  const handleDarAlta = useCallback(async (pacienteId: string) => {
     if (!confirm('¿Confirma dar de alta al paciente?')) return;
     try {
       await api.ejecutarAlta(pacienteId);
@@ -167,7 +170,7 @@ function App() {
     }
   }, [hospitalActual, cargarCamas, showAlert]);
 
-  const handleCancelarAlta = useCallback(async (pacienteId: number) => {
+  const handleCancelarAlta = useCallback(async (pacienteId: string) => {
     try {
       await api.cancelarAlta(pacienteId);
       showAlert('info', 'Alta cancelada');
@@ -177,7 +180,7 @@ function App() {
     }
   }, [hospitalActual, cargarCamas, showAlert]);
 
-  const handleConfirmarEgreso = useCallback(async (pacienteId: number) => {
+  const handleConfirmarEgreso = useCallback(async (pacienteId: string) => {
     if (!confirm('¿Confirma el egreso del paciente por derivación?')) return;
     try {
       await api.confirmarEgresoDerivacion(pacienteId);
@@ -188,7 +191,7 @@ function App() {
     }
   }, [hospitalActual, cargarCamas, showAlert]);
 
-  const handleBloquear = useCallback(async (camaId: number, bloquear: boolean) => {
+  const handleBloquear = useCallback(async (camaId: string, bloquear: boolean) => {
     const motivo = bloquear ? prompt('Motivo del bloqueo (opcional):') : undefined;
     try {
       await api.bloquearCama(camaId, { bloquear, motivo: motivo || undefined });
@@ -233,6 +236,19 @@ function App() {
     showAlert('error', mensaje);
   }, [showAlert]);
 
+  // Handler para selección de hospital
+  const handleHospitalChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedId = e.target.value;
+    if (selectedId === '') {
+      setHospitalActual(null);
+    } else {
+      const hospital = hospitales.find(h => h.id === selectedId);
+      if (hospital) {
+        setHospitalActual(hospital);
+      }
+    }
+  }, [hospitales, setHospitalActual]);
+
   // Render header
   const renderHeader = () => (
     <header className="header">
@@ -246,25 +262,15 @@ function App() {
       </div>
       <div className="header-right">
         <select
-  className="hospital-select"
-  value={hospitalActual ? String(hospitalActual.id) : ''}
-  onChange={(e) => {
-    const selectedId = e.target.value;
-    if (selectedId === '') {
-      setHospitalActual(null);
-    } else {
-      const hospital = hospitales.find(h => h.id === Number(selectedId));
-      if (hospital) {
-        setHospitalActual(hospital);
-      }
-    }
-  }}
->
-  <option value="">Seleccionar hospital</option>
-  {hospitales.map(h => (
-    <option key={h.id} value={String(h.id)}>{h.nombre}</option>
-  ))}
-</select>
+          className="hospital-select"
+          value={hospitalActual?.id || ''}
+          onChange={handleHospitalChange}
+        >
+          <option value="">Seleccionar hospital</option>
+          {hospitales.map(h => (
+            <option key={h.id} value={h.id}>{h.nombre}</option>
+          ))}
+        </select>
         <button
           className={`btn btn-secondary ${configuracion?.modo_manual ? 'active' : ''}`}
           onClick={handleToggleModoManual}
@@ -497,7 +503,7 @@ function App() {
         size="large"
       >
         <PacienteForm
-          hospitalId={hospitalActual?.id || 0}
+          hospitalId={hospitalActual?.id || ''}
           hospitales={hospitales}
           onSubmit={handleFormSubmit}
           onError={handleFormError}
@@ -515,7 +521,7 @@ function App() {
         {pacienteSeleccionado && (
           <PacienteForm
             paciente={pacienteSeleccionado}
-            hospitalId={hospitalActual?.id || 0}
+            hospitalId={hospitalActual?.id || ''}
             hospitales={hospitales}
             isReevaluacion
             onSubmit={handleFormSubmit}

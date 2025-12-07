@@ -27,9 +27,9 @@ interface AppState {
 interface AppContextValue extends AppState {
   setHospitalActual: (hospital: Hospital | null) => void;
   cargarHospitales: () => Promise<void>;
-  cargarCamas: (hospitalId: number) => Promise<void>;
-  cargarListaEspera: (hospitalId: number) => Promise<void>;
-  cargarDerivados: (hospitalId: number) => Promise<void>;
+  cargarCamas: (hospitalId: string) => Promise<void>;
+  cargarListaEspera: (hospitalId: string) => Promise<void>;
+  cargarDerivados: (hospitalId: string) => Promise<void>;
   cargarConfiguracion: () => Promise<void>;
   cargarEstadisticas: () => Promise<void>;
   refrescarDatos: () => Promise<void>;
@@ -83,7 +83,7 @@ export function AppProvider({ children }: AppProviderProps) {
     api.getEstadisticas().then(estadisticas => {
       setState(prev => ({ ...prev, estadisticas }));
     }).catch(console.error);
-  }, []); // Sin dependencias - usa ref
+  }, []);
 
   const handleWsConnect = useCallback(() => {
     setState(prev => ({ ...prev, wsConnected: true }));
@@ -119,7 +119,7 @@ export function AppProvider({ children }: AppProviderProps) {
   }, []);
 
   // Cargar camas - NO modifica loading para evitar race conditions
-  const cargarCamas = useCallback(async (hospitalId: number) => {
+  const cargarCamas = useCallback(async (hospitalId: string) => {
     try {
       const camas = await api.getCamasHospital(hospitalId);
       setState(prev => ({ ...prev, camas }));
@@ -133,7 +133,7 @@ export function AppProvider({ children }: AppProviderProps) {
   }, []);
 
   // Cargar lista de espera
-  const cargarListaEspera = useCallback(async (hospitalId: number) => {
+  const cargarListaEspera = useCallback(async (hospitalId: string) => {
     try {
       const listaEspera = await api.getListaEspera(hospitalId);
       setState(prev => ({ ...prev, listaEspera }));
@@ -143,7 +143,7 @@ export function AppProvider({ children }: AppProviderProps) {
   }, []);
 
   // Cargar derivados
-  const cargarDerivados = useCallback(async (hospitalId: number) => {
+  const cargarDerivados = useCallback(async (hospitalId: string) => {
     try {
       const derivados = await api.getDerivados(hospitalId);
       setState(prev => ({ ...prev, derivados }));
@@ -172,13 +172,13 @@ export function AppProvider({ children }: AppProviderProps) {
     }
   }, []);
 
-  // Establecer hospital actual - SOLUCIÓN PRINCIPAL
+  // Establecer hospital actual
   const setHospitalActual = useCallback((hospital: Hospital | null) => {
     // Actualizar ref inmediatamente
     hospitalActualRef.current = hospital;
     
     if (hospital) {
-      // Actualizar estado con hospital, loading y limpiar datos anteriores en UNA SOLA operación
+      // Actualizar estado con hospital, loading y limpiar datos anteriores
       setState(prev => ({ 
         ...prev, 
         hospitalActual: hospital,

@@ -6,7 +6,7 @@ interface ListaEsperaProps {
   items: ListaEsperaItem[];
   hospitalActual: Hospital | null;
   onVerPaciente: (paciente: Paciente) => void;
-  onCancelarBusqueda: (pacienteId: number) => void;
+  onCancelarBusqueda: (pacienteId: string) => void;
   onRefresh: () => void;
 }
 
@@ -27,7 +27,7 @@ export function ListaEspera({
     );
   }
 
-  const getEstadoBadge = (estado: EstadoListaEsperaEnum) => {
+  const getEstadoBadge = (estado: EstadoListaEsperaEnum | string) => {
     switch (estado) {
       case 'esperando':
         return <span className="badge badge-warning">Esperando</span>;
@@ -88,39 +88,41 @@ export function ListaEspera({
             </thead>
             <tbody>
               {items.map((item, index) => (
-                <tr key={item.paciente.id} className={`estado-${item.estado}`}>
+                <tr key={item.paciente?.id || item.paciente_id || index} className={`estado-${item.estado || item.estado_lista}`}>
                   <td className="prioridad-cell">
                     <span className="prioridad-numero">{index + 1}</span>
                     <span className="prioridad-puntos">{item.prioridad} pts</span>
                   </td>
                   <td>
                     <div className="paciente-info">
-                      <span className="paciente-nombre">{item.paciente.nombre}</span>
-                      <span className="paciente-run">{item.paciente.run}</span>
+                      <span className="paciente-nombre">{item.paciente?.nombre || item.nombre}</span>
+                      <span className="paciente-run">{item.paciente?.run || item.run}</span>
                     </div>
                   </td>
                   <td>
-                    <span className={`badge badge-complejidad-${item.paciente.complejidad}`}>
-                      {item.paciente.complejidad.toUpperCase()}
+                    <span className={`badge badge-complejidad-${item.paciente?.complejidad || 'ninguna'}`}>
+                      {(item.paciente?.complejidad || 'ninguna').toUpperCase()}
                     </span>
                   </td>
                   <td className="tiempo-cell">
                     <Clock size={14} />
-                    <span>{formatTiempoEspera(item.tiempo_espera_minutos)}</span>
+                    <span>{formatTiempoEspera(item.tiempo_espera_minutos || item.tiempo_espera_min || 0)}</span>
                   </td>
-                  <td>{getEstadoBadge(item.estado)}</td>
+                  <td>{getEstadoBadge(item.estado || item.estado_lista || 'esperando')}</td>
                   <td className="acciones-cell">
-                    <button
-                      className="btn btn-sm btn-secondary"
-                      onClick={() => onVerPaciente(item.paciente)}
-                      title="Ver detalle"
-                    >
-                      <Eye size={14} />
-                    </button>
-                    {item.estado !== 'asignado' && (
+                    {item.paciente && (
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => onVerPaciente(item.paciente)}
+                        title="Ver detalle"
+                      >
+                        <Eye size={14} />
+                      </button>
+                    )}
+                    {(item.estado || item.estado_lista) !== 'asignado' && (
                       <button
                         className="btn btn-sm btn-danger"
-                        onClick={() => onCancelarBusqueda(item.paciente.id)}
+                        onClick={() => onCancelarBusqueda(item.paciente?.id || item.paciente_id || '')}
                         title="Cancelar búsqueda"
                       >
                         <X size={14} />

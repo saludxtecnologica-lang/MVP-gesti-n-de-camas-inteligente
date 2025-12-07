@@ -8,14 +8,14 @@ interface CamaCardProps {
   modoManual: boolean;
   onVerPaciente: (paciente: Paciente) => void;
   onReevaluar: (paciente: Paciente) => void;
-  onCompletarTraslado: (pacienteId: number) => void;
-  onCancelarTraslado: (pacienteId: number) => void;
-  onBuscarNuevaCama: (pacienteId: number) => void;
-  onIniciarAlta: (pacienteId: number) => void;
-  onDarAlta: (pacienteId: number) => void;
-  onCancelarAlta: (pacienteId: number) => void;
-  onConfirmarEgreso: (pacienteId: number) => void;
-  onBloquear: (camaId: number, bloquear: boolean) => void;
+  onCompletarTraslado: (pacienteId: string) => void;
+  onCancelarTraslado: (pacienteId: string) => void;
+  onBuscarNuevaCama: (pacienteId: string) => void;
+  onIniciarAlta: (pacienteId: string) => void;
+  onDarAlta: (pacienteId: string) => void;
+  onCancelarAlta: (pacienteId: string) => void;
+  onConfirmarEgreso: (pacienteId: string) => void;
+  onBloquear: (camaId: string, bloquear: boolean) => void;
 }
 
 export function CamaCard({

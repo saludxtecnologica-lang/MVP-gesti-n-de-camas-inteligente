@@ -1,18 +1,23 @@
-import React, { useEffect, useCallback, ReactNode } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
-  children: ReactNode;
-  footer?: ReactNode;
+  children: React.ReactNode;
   size?: 'small' | 'medium' | 'large';
 }
 
-export function Modal({ isOpen, onClose, title, children, footer, size = 'medium' }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, size = 'medium' }: ModalProps) {
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
+      onClose();
+    }
+  }, [onClose]);
+
+  const handleBackdropClick = useCallback((e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
       onClose();
     }
   }, [onClose]);
@@ -22,35 +27,29 @@ export function Modal({ isOpen, onClose, title, children, footer, size = 'medium
       document.addEventListener('keydown', handleEscape);
       document.body.style.overflow = 'hidden';
     }
-
     return () => {
       document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = '';
     };
   }, [isOpen, handleEscape]);
 
   if (!isOpen) return null;
 
+  // Clase CSS según tamaño: modal-lg para large
+  const modalSizeClass = size === 'large' ? 'modal modal-lg' : 'modal';
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div 
-        className={`modal modal-${size}`} 
-        onClick={e => e.stopPropagation()}
-      >
+    <div className="modal-overlay" onClick={handleBackdropClick}>
+      <div className={modalSizeClass}>
         <div className="modal-header">
-          <h3 className="modal-title">{title}</h3>
-          <button className="modal-close" onClick={onClose}>
-            <X size={20} />
+          <h2 className="modal-title">{title}</h2>
+          <button className="modal-close" onClick={onClose} aria-label="Cerrar">
+            <X size={24} />
           </button>
         </div>
         <div className="modal-body">
           {children}
         </div>
-        {footer && (
-          <div className="modal-footer">
-            {footer}
-          </div>
-        )}
       </div>
     </div>
   );

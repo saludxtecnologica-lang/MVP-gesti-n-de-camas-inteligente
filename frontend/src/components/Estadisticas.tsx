@@ -23,6 +23,14 @@ export function Estadisticas({ estadisticas }: EstadisticasProps) {
     return 'good';
   };
 
+  // Calcular totales desde los hospitales
+  const totales = {
+    total_camas: estadisticas.total_camas_sistema,
+    camas_libres: estadisticas.hospitales.reduce((sum, h) => sum + h.camas_libres, 0),
+    camas_ocupadas: estadisticas.hospitales.reduce((sum, h) => sum + h.camas_ocupadas, 0),
+    porcentaje_ocupacion: estadisticas.ocupacion_promedio
+  };
+
   return (
     <div className="estadisticas-container">
       <div className="estadisticas-header">
@@ -39,7 +47,7 @@ export function Estadisticas({ estadisticas }: EstadisticasProps) {
               <Bed size={24} />
             </div>
             <div className="stat-content">
-              <span className="stat-value">{estadisticas.totales.total_camas}</span>
+              <span className="stat-value">{totales.total_camas}</span>
               <span className="stat-label">Camas totales</span>
             </div>
           </div>
@@ -49,7 +57,7 @@ export function Estadisticas({ estadisticas }: EstadisticasProps) {
               <Bed size={24} />
             </div>
             <div className="stat-content">
-              <span className="stat-value">{estadisticas.totales.camas_libres}</span>
+              <span className="stat-value">{totales.camas_libres}</span>
               <span className="stat-label">Camas libres</span>
             </div>
           </div>
@@ -59,17 +67,17 @@ export function Estadisticas({ estadisticas }: EstadisticasProps) {
               <Bed size={24} />
             </div>
             <div className="stat-content">
-              <span className="stat-value">{estadisticas.totales.camas_ocupadas}</span>
+              <span className="stat-value">{totales.camas_ocupadas}</span>
               <span className="stat-label">Camas ocupadas</span>
             </div>
           </div>
 
           <div className="stat-card">
-            <div className={`stat-icon ${getOcupacionColor(estadisticas.totales.porcentaje_ocupacion)}`}>
+            <div className={`stat-icon ${getOcupacionColor(totales.porcentaje_ocupacion)}`}>
               <TrendingUp size={24} />
             </div>
             <div className="stat-content">
-              <span className="stat-value">{estadisticas.totales.porcentaje_ocupacion.toFixed(1)}%</span>
+              <span className="stat-value">{totales.porcentaje_ocupacion.toFixed(1)}%</span>
               <span className="stat-label">Ocupación global</span>
             </div>
           </div>
@@ -80,64 +88,70 @@ export function Estadisticas({ estadisticas }: EstadisticasProps) {
       <section className="estadisticas-hospitales">
         <h3>Por Hospital</h3>
         <div className="hospitales-grid">
-          {estadisticas.hospitales.map(hospital => (
-            <div key={hospital.hospital_id} className="hospital-stats-card">
-              <div className="hospital-header">
-                <Building2 size={20} />
-                <h4>{hospital.hospital_nombre}</h4>
-              </div>
+          {estadisticas.hospitales.map(hospital => {
+            const ocupacion = hospital.porcentaje_ocupacion ?? hospital.ocupacion_porcentaje ?? 0;
+            const pacientesEspera = hospital.pacientes_espera ?? hospital.pacientes_en_espera ?? 0;
+            const derivadosPendientes = hospital.derivados_pendientes ?? hospital.pacientes_derivados_pendientes ?? 0;
+            
+            return (
+              <div key={hospital.hospital_id} className="hospital-stats-card">
+                <div className="hospital-header">
+                  <Building2 size={20} />
+                  <h4>{hospital.hospital_nombre}</h4>
+                </div>
 
-              <div className="ocupacion-bar-container">
-                <div
-                  className={`ocupacion-bar ${getOcupacionColor(hospital.porcentaje_ocupacion)}`}
-                  style={{ width: `${Math.min(hospital.porcentaje_ocupacion, 100)}%` }}
-                />
-                <span className="ocupacion-text">
-                  {hospital.porcentaje_ocupacion.toFixed(1)}% ocupación
-                </span>
-              </div>
+                <div className="ocupacion-bar-container">
+                  <div
+                    className={`ocupacion-bar ${getOcupacionColor(ocupacion)}`}
+                    style={{ width: `${Math.min(ocupacion, 100)}%` }}
+                  />
+                  <span className="ocupacion-text">
+                    {ocupacion.toFixed(1)}% ocupación
+                  </span>
+                </div>
 
-              <div className="hospital-stats-grid">
-                <div className="mini-stat">
-                  <Bed size={14} />
-                  <span>{hospital.total_camas} total</span>
-                </div>
-                <div className="mini-stat success">
-                  <Bed size={14} />
-                  <span>{hospital.camas_libres} libres</span>
-                </div>
-                <div className="mini-stat warning">
-                  <Bed size={14} />
-                  <span>{hospital.camas_ocupadas} ocupadas</span>
-                </div>
-                <div className="mini-stat info">
-                  <Clock size={14} />
-                  <span>{hospital.camas_traslado} en traslado</span>
-                </div>
-                <div className="mini-stat danger">
-                  <Bed size={14} />
-                  <span>{hospital.camas_limpieza} en limpieza</span>
-                </div>
-                <div className="mini-stat secondary">
-                  <Bed size={14} />
-                  <span>{hospital.camas_bloqueadas} bloqueadas</span>
-                </div>
-              </div>
-
-              <div className="hospital-listas">
-                <div className="lista-stat">
-                  <Users size={14} />
-                  <span>{hospital.pacientes_espera} en lista de espera</span>
-                </div>
-                {hospital.derivados_pendientes > 0 && (
-                  <div className="lista-stat warning">
-                    <Users size={14} />
-                    <span>{hospital.derivados_pendientes} derivaciones pendientes</span>
+                <div className="hospital-stats-grid">
+                  <div className="mini-stat">
+                    <Bed size={14} />
+                    <span>{hospital.total_camas} total</span>
                   </div>
-                )}
+                  <div className="mini-stat success">
+                    <Bed size={14} />
+                    <span>{hospital.camas_libres} libres</span>
+                  </div>
+                  <div className="mini-stat warning">
+                    <Bed size={14} />
+                    <span>{hospital.camas_ocupadas} ocupadas</span>
+                  </div>
+                  <div className="mini-stat info">
+                    <Clock size={14} />
+                    <span>{hospital.camas_traslado} en traslado</span>
+                  </div>
+                  <div className="mini-stat danger">
+                    <Bed size={14} />
+                    <span>{hospital.camas_limpieza} en limpieza</span>
+                  </div>
+                  <div className="mini-stat secondary">
+                    <Bed size={14} />
+                    <span>{hospital.camas_bloqueadas} bloqueadas</span>
+                  </div>
+                </div>
+
+                <div className="hospital-listas">
+                  <div className="lista-stat">
+                    <Users size={14} />
+                    <span>{pacientesEspera} en lista de espera</span>
+                  </div>
+                  {derivadosPendientes > 0 && (
+                    <div className="lista-stat warning">
+                      <Users size={14} />
+                      <span>{derivadosPendientes} derivaciones pendientes</span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

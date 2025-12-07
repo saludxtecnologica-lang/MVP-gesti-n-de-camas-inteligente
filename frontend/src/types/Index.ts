@@ -77,147 +77,94 @@ export enum EstadoListaEsperaEnum {
   CANCELADO = "cancelado"
 }
 
-// Interfaces
+// Interfaces - IDs son strings (UUIDs del backend)
 export interface Hospital {
-  id: number;
+  id: string;
   nombre: string;
   codigo: string;
-  es_centro_referencia: boolean;
+  es_centro_referencia?: boolean;
+  es_central?: boolean;
+  total_camas?: number;
+  camas_libres?: number;
+  camas_ocupadas?: number;
+  pacientes_en_espera?: number;
+  pacientes_derivados?: number;
 }
 
 export interface Servicio {
-  id: number;
-  hospital_id: number;
+  id: string;
+  hospital_id: string;
   nombre: string;
+  codigo?: string;
   tipo: TipoServicioEnum;
-  es_uci: boolean;
-  es_uti: boolean;
-  permite_pediatria: boolean;
-  prioridad: number;
+  es_uci?: boolean;
+  es_uti?: boolean;
+  permite_pediatria?: boolean;
+  prioridad?: number;
 }
 
 export interface Sala {
-  id: number;
-  servicio_id: number;
-  nombre: string;
+  id: string;
+  servicio_id: string;
+  nombre?: string;
+  numero?: number;
   es_individual: boolean;
   sexo_asignado: SexoEnum | null;
+  servicio?: Servicio;
 }
 
 export interface Cama {
-  id: number;
-  sala_id: number;
+  id: string;
+  sala_id: string;
+  numero?: number;
+  letra?: string;
   identificador: string;
   estado: EstadoCamaEnum;
-  paciente_id: number | null;
-  paciente_entrante_id: number | null;
-  bloqueada_motivo: string | null;
-  limpieza_inicio: string | null;
+  paciente_id?: string | null;
+  paciente_entrante_id?: string | null;
+  bloqueada_motivo?: string | null;
+  mensaje_estado?: string | null;
+  limpieza_inicio?: string | null;
+  cama_asignada_destino?: string | null;
+  
+  // Campos que el backend envía directamente (CamaResponse en schemas.py)
+  servicio_nombre?: string;
+  servicio_tipo?: TipoServicioEnum;
+  sala_es_individual?: boolean;
+  sala_sexo_asignado?: SexoEnum | null;
+  
   // Relaciones expandidas
-  sala?: Sala & { servicio?: Servicio };
+  sala?: Sala;
   paciente?: Paciente;
   paciente_entrante?: Paciente;
 }
 
 export interface Paciente {
-  id: number;
+  id: string;
   nombre: string;
   run: string;
   sexo: SexoEnum;
   edad: number;
-  edad_categoria: EdadCategoriaEnum;
+  edad_categoria?: EdadCategoriaEnum;
   diagnostico: string;
   tipo_enfermedad: TipoEnfermedadEnum;
   tipo_aislamiento: TipoAislamientoEnum;
-  complejidad: ComplejidadEnum;
+  complejidad?: ComplejidadEnum;
+  complejidad_requerida?: ComplejidadEnum;
   tipo_paciente: TipoPacienteEnum;
-  embarazada: boolean;
-  hospital_id: number;
-  cama_actual_id: number | null;
-  
-  // Requerimientos clínicos
-  req_kinesioterapia: boolean;
-  req_control_sangre_1x: boolean;
-  req_curaciones: boolean;
-  req_tratamiento_ev_2x: boolean;
-  req_tratamiento_ev_3x: boolean;
-  req_control_sangre_2x: boolean;
-  req_o2_naricera: boolean;
-  req_dolor_eva_7: boolean;
-  req_o2_multiventuri: boolean;
-  req_curaciones_complejas: boolean;
-  req_aspiracion: boolean;
-  req_observacion: boolean;
-  req_observacion_motivo: string | null;
-  req_irrigacion_vesical: boolean;
-  req_procedimiento_invasivo: boolean;
-  req_procedimiento_invasivo_detalle: string | null;
-  req_drogas_vasoactivas: boolean;
-  req_sedacion: boolean;
-  req_monitorizacion: boolean;
-  req_monitorizacion_motivo: string | null;
-  req_o2_reservorio: boolean;
-  req_dialisis: boolean;
-  req_cnaf: boolean;
-  req_bic_insulina: boolean;
-  req_vmni: boolean;
-  req_vmi: boolean;
-  req_procuramiento_o2: boolean;
-  
-  // Casos especiales
-  caso_socio_sanitario: boolean;
-  caso_socio_judicial: boolean;
-  caso_espera_cardiocirugia: boolean;
-  
-  // Notas y documentos
-  notas_adicionales: string | null;
-  documento_adjunto: string | null;
-  
-  // Derivación
-  derivacion_solicitada: boolean;
-  derivacion_hospital_destino_id: number | null;
-  derivacion_motivo: string | null;
-  derivacion_estado: string | null;
-  derivacion_rechazo_motivo: string | null;
-  
-  // Alta
-  alta_solicitada: boolean;
-  alta_motivo: string | null;
-  
-  // Lista espera
-  estado_lista_espera: EstadoListaEsperaEnum | null;
-  lista_espera_inicio: string | null;
-  cama_asignada_id: number | null;
-  
-  // Timestamps
-  created_at: string;
-  updated_at: string;
-  
-  // Relaciones
-  hospital?: Hospital;
-  cama_actual?: Cama;
-  cama_asignada?: Cama;
-}
-
-export interface ConfiguracionSistema {
-  id: number;
-  modo_manual: boolean;
-  tiempo_limpieza_segundos: number;
-}
-
-// Request/Response types
-export interface PacienteCreate {
-  nombre: string;
-  run: string;
-  sexo: SexoEnum;
-  edad: number;
-  diagnostico: string;
-  tipo_enfermedad: TipoEnfermedadEnum;
-  tipo_aislamiento: TipoAislamientoEnum;
   embarazada?: boolean;
-  hospital_id: number;
+  es_embarazada?: boolean; // Alias del backend
+  hospital_id: string;
+  cama_actual_id?: string | null;
+  cama_id?: string | null; // Alias del backend
+  cama_destino_id?: string | null;
+  en_lista_espera?: boolean;
+  estado_lista_espera?: EstadoListaEsperaEnum | string | null;
+  prioridad_calculada?: number;
+  tiempo_espera_min?: number;
+  requiere_nueva_cama?: boolean;
   
-  // Requerimientos
+  // Requerimientos clínicos (formato frontend - booleanos) - TODOS OPCIONALES
   req_kinesioterapia?: boolean;
   req_control_sangre_1x?: boolean;
   req_curaciones?: boolean;
@@ -230,14 +177,14 @@ export interface PacienteCreate {
   req_curaciones_complejas?: boolean;
   req_aspiracion?: boolean;
   req_observacion?: boolean;
-  req_observacion_motivo?: string;
+  req_observacion_motivo?: string | null;
   req_irrigacion_vesical?: boolean;
   req_procedimiento_invasivo?: boolean;
-  req_procedimiento_invasivo_detalle?: string;
+  req_procedimiento_invasivo_detalle?: string | null;
   req_drogas_vasoactivas?: boolean;
   req_sedacion?: boolean;
   req_monitorizacion?: boolean;
-  req_monitorizacion_motivo?: string;
+  req_monitorizacion_motivo?: string | null;
   req_o2_reservorio?: boolean;
   req_dialisis?: boolean;
   req_cnaf?: boolean;
@@ -246,16 +193,90 @@ export interface PacienteCreate {
   req_vmi?: boolean;
   req_procuramiento_o2?: boolean;
   
-  // Casos especiales
+  // Requerimientos como listas (formato del backend)
+  requerimientos_no_definen?: string[];
+  requerimientos_baja?: string[];
+  requerimientos_uti?: string[];
+  requerimientos_uci?: string[];
+  
+  // Campos adicionales del backend
+  motivo_observacion?: string | null;
+  justificacion_observacion?: string | null;
+  procedimiento_invasivo?: string | null;
+  
+  // Casos especiales - OPCIONALES
   caso_socio_sanitario?: boolean;
   caso_socio_judicial?: boolean;
   caso_espera_cardiocirugia?: boolean;
+  casos_especiales?: string[];
   
+  // Notas y documentos
+  notas_adicionales?: string | null;
+  documento_adjunto?: string | null;
+  
+  // Derivación - OPCIONALES
+  derivacion_solicitada?: boolean;
+  derivacion_hospital_destino_id?: string | null;
+  derivacion_motivo?: string | null;
+  derivacion_estado?: string | null;
+  derivacion_rechazo_motivo?: string | null;
+  derivacion_motivo_rechazo?: string | null; // Alias
+  
+  // Alta - OPCIONALES
+  alta_solicitada?: boolean;
+  alta_motivo?: string | null;
+  
+  // Lista espera
+  timestamp_lista_espera?: string | null;
+  lista_espera_inicio?: string | null;
+  cama_asignada_id?: string | null;
+  
+  // Timestamps
+  created_at?: string;
+  updated_at?: string;
+  
+  // Relaciones
+  hospital?: Hospital;
+  cama_actual?: Cama;
+  cama_asignada?: Cama;
+}
+
+export interface ConfiguracionSistema {
+  id?: string;
+  modo_manual: boolean;
+  tiempo_limpieza_segundos: number;
+}
+
+// Request/Response types - Coincide con PacienteCreate del backend (schemas.py)
+export interface PacienteCreate {
+  nombre: string;
+  run: string;
+  sexo: SexoEnum;
+  edad: number;
+  es_embarazada?: boolean;
+  diagnostico: string;
+  tipo_enfermedad: TipoEnfermedadEnum;
+  tipo_aislamiento?: TipoAislamientoEnum;
   notas_adicionales?: string;
   
+  // Requerimientos clínicos como listas de strings (formato del backend)
+  requerimientos_no_definen?: string[];
+  requerimientos_baja?: string[];
+  requerimientos_uti?: string[];
+  requerimientos_uci?: string[];
+  casos_especiales?: string[];
+  
+  // Campos especiales
+  motivo_observacion?: string;
+  justificacion_observacion?: string;
+  procedimiento_invasivo?: string;
+  
+  // Tipo de paciente (requerido por el backend)
+  tipo_paciente: TipoPacienteEnum;
+  hospital_id: string;
+  
   // Derivación
-  derivacion_solicitada?: boolean;
-  derivacion_hospital_destino_id?: number;
+  derivacion_hospital_destino_id?: string;
   derivacion_motivo?: string;
   
   // Alta
@@ -263,7 +284,94 @@ export interface PacienteCreate {
   alta_motivo?: string;
 }
 
-export interface PacienteUpdate extends Partial<PacienteCreate> {}
+// Interfaz auxiliar para el formulario (con checkboxes individuales)
+export interface PacienteFormData {
+  nombre: string;
+  run: string;
+  sexo: SexoEnum;
+  edad: number;
+  es_embarazada: boolean;
+  diagnostico: string;
+  tipo_enfermedad: TipoEnfermedadEnum;
+  tipo_aislamiento: TipoAislamientoEnum;
+  notas_adicionales: string;
+  tipo_paciente: TipoPacienteEnum;
+  hospital_id: string;
+  
+  // Requerimientos que no definen complejidad
+  req_kinesioterapia: boolean;
+  req_control_sangre_1x: boolean;
+  req_curaciones: boolean;
+  req_tratamiento_ev_2x: boolean;
+  
+  // Requerimientos baja complejidad
+  req_tratamiento_ev_3x: boolean;
+  req_control_sangre_2x: boolean;
+  req_o2_naricera: boolean;
+  req_dolor_eva_7: boolean;
+  req_o2_multiventuri: boolean;
+  req_curaciones_complejas: boolean;
+  req_aspiracion: boolean;
+  req_observacion: boolean;
+  req_observacion_motivo: string;
+  req_irrigacion_vesical: boolean;
+  req_procedimiento_invasivo: boolean;
+  req_procedimiento_invasivo_detalle: string;
+  
+  // Requerimientos UTI
+  req_drogas_vasoactivas: boolean;
+  req_sedacion: boolean;
+  req_monitorizacion: boolean;
+  req_monitorizacion_motivo: string;
+  req_o2_reservorio: boolean;
+  req_dialisis: boolean;
+  req_cnaf: boolean;
+  req_bic_insulina: boolean;
+  req_vmni: boolean;
+  
+  // Requerimientos UCI
+  req_vmi: boolean;
+  req_procuramiento_o2: boolean;
+  
+  // Casos especiales
+  caso_socio_sanitario: boolean;
+  caso_socio_judicial: boolean;
+  caso_espera_cardiocirugia: boolean;
+  
+  // Derivación
+  derivacion_solicitada: boolean;
+  derivacion_hospital_destino_id: string;
+  derivacion_motivo: string;
+  
+  // Alta
+  alta_solicitada: boolean;
+  alta_motivo: string;
+}
+
+// PacienteUpdate para reevaluación - coincide con backend
+export interface PacienteUpdate {
+  diagnostico?: string;
+  tipo_enfermedad?: TipoEnfermedadEnum;
+  tipo_aislamiento?: TipoAislamientoEnum;
+  notas_adicionales?: string;
+  es_embarazada?: boolean;
+  
+  requerimientos_no_definen?: string[];
+  requerimientos_baja?: string[];
+  requerimientos_uti?: string[];
+  requerimientos_uci?: string[];
+  casos_especiales?: string[];
+  
+  motivo_observacion?: string;
+  justificacion_observacion?: string;
+  procedimiento_invasivo?: string;
+  
+  derivacion_hospital_destino_id?: string;
+  derivacion_motivo?: string;
+  
+  alta_solicitada?: boolean;
+  alta_motivo?: string;
+}
 
 export interface DerivacionAccion {
   accion: 'aceptar' | 'rechazar';
@@ -271,13 +379,13 @@ export interface DerivacionAccion {
 }
 
 export interface TrasladoManual {
-  paciente_id: number;
-  cama_destino_id: number;
+  paciente_id: string;
+  cama_destino_id: string;
 }
 
 export interface IntercambioRequest {
-  paciente1_id: number;
-  paciente2_id: number;
+  paciente1_id: string;
+  paciente2_id: string;
 }
 
 export interface CamaBloquearRequest {
@@ -296,7 +404,7 @@ export interface PrioridadExplicacion {
 }
 
 export interface EstadisticasHospital {
-  hospital_id: number;
+  hospital_id: string;
   hospital_nombre: string;
   total_camas: number;
   camas_libres: number;
@@ -304,41 +412,61 @@ export interface EstadisticasHospital {
   camas_traslado: number;
   camas_limpieza: number;
   camas_bloqueadas: number;
-  pacientes_espera: number;
-  derivados_pendientes: number;
-  porcentaje_ocupacion: number;
+  pacientes_espera?: number;
+  pacientes_en_espera?: number;
+  derivados_pendientes?: number;
+  pacientes_derivados_pendientes?: number;
+  porcentaje_ocupacion?: number;
+  ocupacion_porcentaje?: number;
 }
 
+// Corregido para coincidir con el backend (EstadisticasGlobalesResponse)
 export interface EstadisticasGlobales {
   hospitales: EstadisticasHospital[];
-  totales: {
-    total_camas: number;
-    camas_libres: number;
-    camas_ocupadas: number;
-    porcentaje_ocupacion: number;
-  };
+  total_camas_sistema: number;
+  total_pacientes_sistema: number;
+  ocupacion_promedio: number;
 }
 
 // WebSocket events
 export interface WebSocketEvent {
   tipo: string;
-  datos: Record<string, unknown>;
-  timestamp: string;
+  datos?: Record<string, unknown>;
+  timestamp?: string;
+  [key: string]: unknown;
 }
 
-// Lista espera item
+// Lista espera item - campos adicionales del backend
 export interface ListaEsperaItem {
   paciente: Paciente;
   prioridad: number;
   tiempo_espera_minutos: number;
   estado: EstadoListaEsperaEnum;
+  // Campos adicionales que puede enviar el backend
+  paciente_id?: string;
+  nombre?: string;
+  run?: string;
+  posicion?: number;
+  tiempo_espera_min?: number;
+  estado_lista?: string;
 }
 
-// Derivado item
+// Derivado item - campos adicionales del backend
 export interface DerivadoItem {
   paciente: Paciente;
   hospital_origen: Hospital;
   motivo: string;
   prioridad: number;
   tiempo_en_lista_minutos: number;
+  // Campos adicionales que puede enviar el backend
+  paciente_id?: string;
+  nombre?: string;
+  run?: string;
+  hospital_origen_id?: string;
+  hospital_origen_nombre?: string;
+  motivo_derivacion?: string;
+  tiempo_en_lista_min?: number;
+  diagnostico?: string;
+  complejidad?: string;
+  tipo_paciente?: string;
 }

@@ -4,21 +4,242 @@ import type {
   Paciente,
   PacienteCreate,
   PacienteUpdate,
+  PacienteFormData,
   Hospital,
-  SexoEnum,
-  TipoEnfermedadEnum,
-  TipoAislamientoEnum
+  TipoPacienteEnum
 } from '../types/Index';
+import { SexoEnum, TipoEnfermedadEnum, TipoAislamientoEnum } from '../types/Index';
 import * as api from '../services/api';
 
 interface PacienteFormProps {
   paciente?: Paciente;
-  hospitalId: number;
+  hospitalId: string;
   hospitales: Hospital[];
   isReevaluacion?: boolean;
   onSubmit: () => void;
   onError: (mensaje: string) => void;
   onCancel: () => void;
+}
+
+// Función para convertir el formulario al formato del backend
+function convertFormToApiData(formData: PacienteFormData, isReevaluacion: boolean): PacienteCreate | PacienteUpdate {
+  // Construir listas de requerimientos
+  const requerimientos_no_definen: string[] = [];
+  if (formData.req_kinesioterapia) requerimientos_no_definen.push('kinesioterapia');
+  if (formData.req_control_sangre_1x) requerimientos_no_definen.push('control_sangre_1x');
+  if (formData.req_curaciones) requerimientos_no_definen.push('curaciones');
+  if (formData.req_tratamiento_ev_2x) requerimientos_no_definen.push('tratamiento_ev_2x');
+
+  const requerimientos_baja: string[] = [];
+  if (formData.req_tratamiento_ev_3x) requerimientos_baja.push('tratamiento_ev_3x');
+  if (formData.req_control_sangre_2x) requerimientos_baja.push('control_sangre_2x');
+  if (formData.req_o2_naricera) requerimientos_baja.push('o2_naricera');
+  if (formData.req_dolor_eva_7) requerimientos_baja.push('dolor_eva_7');
+  if (formData.req_o2_multiventuri) requerimientos_baja.push('o2_multiventuri');
+  if (formData.req_curaciones_complejas) requerimientos_baja.push('curaciones_complejas');
+  if (formData.req_aspiracion) requerimientos_baja.push('aspiracion');
+  if (formData.req_observacion) requerimientos_baja.push('observacion');
+  if (formData.req_irrigacion_vesical) requerimientos_baja.push('irrigacion_vesical');
+  if (formData.req_procedimiento_invasivo) requerimientos_baja.push('procedimiento_invasivo');
+
+  const requerimientos_uti: string[] = [];
+  if (formData.req_drogas_vasoactivas) requerimientos_uti.push('drogas_vasoactivas');
+  if (formData.req_sedacion) requerimientos_uti.push('sedacion');
+  if (formData.req_monitorizacion) requerimientos_uti.push('monitorizacion');
+  if (formData.req_o2_reservorio) requerimientos_uti.push('o2_reservorio');
+  if (formData.req_dialisis) requerimientos_uti.push('dialisis');
+  if (formData.req_cnaf) requerimientos_uti.push('cnaf');
+  if (formData.req_bic_insulina) requerimientos_uti.push('bic_insulina');
+  if (formData.req_vmni) requerimientos_uti.push('vmni');
+
+  const requerimientos_uci: string[] = [];
+  if (formData.req_vmi) requerimientos_uci.push('vmi');
+  if (formData.req_procuramiento_o2) requerimientos_uci.push('procuramiento_o2');
+
+  const casos_especiales: string[] = [];
+  if (formData.caso_socio_sanitario) casos_especiales.push('socio_sanitario');
+  if (formData.caso_socio_judicial) casos_especiales.push('socio_judicial');
+  if (formData.caso_espera_cardiocirugia) casos_especiales.push('espera_cardiocirugia');
+
+  if (isReevaluacion) {
+    // Para reevaluación, solo enviamos los campos actualizables
+    const updateData: PacienteUpdate = {
+      diagnostico: formData.diagnostico,
+      tipo_enfermedad: formData.tipo_enfermedad,
+      tipo_aislamiento: formData.tipo_aislamiento,
+      notas_adicionales: formData.notas_adicionales || undefined,
+      es_embarazada: formData.es_embarazada,
+      requerimientos_no_definen,
+      requerimientos_baja,
+      requerimientos_uti,
+      requerimientos_uci,
+      casos_especiales,
+      motivo_observacion: formData.req_observacion ? formData.req_observacion_motivo : undefined,
+      procedimiento_invasivo: formData.req_procedimiento_invasivo ? formData.req_procedimiento_invasivo_detalle : undefined,
+      justificacion_observacion: formData.req_monitorizacion ? formData.req_monitorizacion_motivo : undefined,
+    };
+
+    // Agregar derivación si está solicitada
+    if (formData.derivacion_solicitada && formData.derivacion_hospital_destino_id) {
+      updateData.derivacion_hospital_destino_id = formData.derivacion_hospital_destino_id;
+      updateData.derivacion_motivo = formData.derivacion_motivo;
+    }
+
+    // Agregar alta si está solicitada
+    if (formData.alta_solicitada) {
+      updateData.alta_solicitada = true;
+      updateData.alta_motivo = formData.alta_motivo;
+    }
+
+    return updateData;
+  } else {
+    // Para nuevo paciente
+    const createData: PacienteCreate = {
+      nombre: formData.nombre.trim(),
+      run: formData.run.trim(),
+      sexo: formData.sexo,
+      edad: formData.edad,
+      es_embarazada: formData.es_embarazada,
+      diagnostico: formData.diagnostico.trim(),
+      tipo_enfermedad: formData.tipo_enfermedad,
+      tipo_aislamiento: formData.tipo_aislamiento,
+      notas_adicionales: formData.notas_adicionales || undefined,
+      tipo_paciente: formData.tipo_paciente,
+      hospital_id: formData.hospital_id,
+      requerimientos_no_definen,
+      requerimientos_baja,
+      requerimientos_uti,
+      requerimientos_uci,
+      casos_especiales,
+      motivo_observacion: formData.req_observacion ? formData.req_observacion_motivo : undefined,
+      procedimiento_invasivo: formData.req_procedimiento_invasivo ? formData.req_procedimiento_invasivo_detalle : undefined,
+      justificacion_observacion: formData.req_monitorizacion ? formData.req_monitorizacion_motivo : undefined,
+    };
+
+    return createData;
+  }
+}
+
+// Función para inicializar el formulario desde un paciente existente
+function initFormFromPaciente(paciente: Paciente | undefined, hospitalId: string): PacienteFormData {
+  const defaultForm: PacienteFormData = {
+    nombre: '',
+    run: '',
+    sexo: SexoEnum.HOMBRE,
+    edad: 0,
+    es_embarazada: false,
+    diagnostico: '',
+    tipo_enfermedad: TipoEnfermedadEnum.MEDICA,
+    tipo_aislamiento: TipoAislamientoEnum.NINGUNO,
+    notas_adicionales: '',
+    tipo_paciente: 'hospitalizado' as TipoPacienteEnum,
+    hospital_id: hospitalId,
+    
+    req_kinesioterapia: false,
+    req_control_sangre_1x: false,
+    req_curaciones: false,
+    req_tratamiento_ev_2x: false,
+    req_tratamiento_ev_3x: false,
+    req_control_sangre_2x: false,
+    req_o2_naricera: false,
+    req_dolor_eva_7: false,
+    req_o2_multiventuri: false,
+    req_curaciones_complejas: false,
+    req_aspiracion: false,
+    req_observacion: false,
+    req_observacion_motivo: '',
+    req_irrigacion_vesical: false,
+    req_procedimiento_invasivo: false,
+    req_procedimiento_invasivo_detalle: '',
+    req_drogas_vasoactivas: false,
+    req_sedacion: false,
+    req_monitorizacion: false,
+    req_monitorizacion_motivo: '',
+    req_o2_reservorio: false,
+    req_dialisis: false,
+    req_cnaf: false,
+    req_bic_insulina: false,
+    req_vmni: false,
+    req_vmi: false,
+    req_procuramiento_o2: false,
+    caso_socio_sanitario: false,
+    caso_socio_judicial: false,
+    caso_espera_cardiocirugia: false,
+    derivacion_solicitada: false,
+    derivacion_hospital_destino_id: '',
+    derivacion_motivo: '',
+    alta_solicitada: false,
+    alta_motivo: ''
+  };
+
+  if (!paciente) return defaultForm;
+
+  // Usar es_embarazada o embarazada (compatibilidad backend/frontend)
+  const esEmbarazada = paciente.es_embarazada ?? paciente.embarazada ?? false;
+  
+  // Detectar si los requerimientos vienen como listas (formato backend)
+  const reqNoDefinen = paciente.requerimientos_no_definen || [];
+  const reqBaja = paciente.requerimientos_baja || [];
+  const reqUti = paciente.requerimientos_uti || [];
+  const reqUci = paciente.requerimientos_uci || [];
+  const casosEspeciales = paciente.casos_especiales || [];
+  
+  return {
+    ...defaultForm,
+    nombre: paciente.nombre,
+    run: paciente.run,
+    sexo: paciente.sexo,
+    edad: paciente.edad,
+    es_embarazada: esEmbarazada,
+    diagnostico: paciente.diagnostico,
+    tipo_enfermedad: paciente.tipo_enfermedad,
+    tipo_aislamiento: paciente.tipo_aislamiento,
+    notas_adicionales: paciente.notas_adicionales || '',
+    tipo_paciente: paciente.tipo_paciente,
+    hospital_id: paciente.hospital_id,
+    
+    // Requerimientos - verificar tanto listas como booleanos
+    req_kinesioterapia: reqNoDefinen.includes('kinesioterapia') || paciente.req_kinesioterapia || false,
+    req_control_sangre_1x: reqNoDefinen.includes('control_sangre_1x') || paciente.req_control_sangre_1x || false,
+    req_curaciones: reqNoDefinen.includes('curaciones') || paciente.req_curaciones || false,
+    req_tratamiento_ev_2x: reqNoDefinen.includes('tratamiento_ev_2x') || paciente.req_tratamiento_ev_2x || false,
+    
+    req_tratamiento_ev_3x: reqBaja.includes('tratamiento_ev_3x') || paciente.req_tratamiento_ev_3x || false,
+    req_control_sangre_2x: reqBaja.includes('control_sangre_2x') || paciente.req_control_sangre_2x || false,
+    req_o2_naricera: reqBaja.includes('o2_naricera') || paciente.req_o2_naricera || false,
+    req_dolor_eva_7: reqBaja.includes('dolor_eva_7') || paciente.req_dolor_eva_7 || false,
+    req_o2_multiventuri: reqBaja.includes('o2_multiventuri') || paciente.req_o2_multiventuri || false,
+    req_curaciones_complejas: reqBaja.includes('curaciones_complejas') || paciente.req_curaciones_complejas || false,
+    req_aspiracion: reqBaja.includes('aspiracion') || paciente.req_aspiracion || false,
+    req_observacion: reqBaja.includes('observacion') || paciente.req_observacion || false,
+    req_observacion_motivo: paciente.motivo_observacion || paciente.req_observacion_motivo || '',
+    req_irrigacion_vesical: reqBaja.includes('irrigacion_vesical') || paciente.req_irrigacion_vesical || false,
+    req_procedimiento_invasivo: reqBaja.includes('procedimiento_invasivo') || paciente.req_procedimiento_invasivo || false,
+    req_procedimiento_invasivo_detalle: paciente.procedimiento_invasivo || paciente.req_procedimiento_invasivo_detalle || '',
+    
+    req_drogas_vasoactivas: reqUti.includes('drogas_vasoactivas') || paciente.req_drogas_vasoactivas || false,
+    req_sedacion: reqUti.includes('sedacion') || paciente.req_sedacion || false,
+    req_monitorizacion: reqUti.includes('monitorizacion') || paciente.req_monitorizacion || false,
+    req_monitorizacion_motivo: paciente.justificacion_observacion || paciente.req_monitorizacion_motivo || '',
+    req_o2_reservorio: reqUti.includes('o2_reservorio') || paciente.req_o2_reservorio || false,
+    req_dialisis: reqUti.includes('dialisis') || paciente.req_dialisis || false,
+    req_cnaf: reqUti.includes('cnaf') || paciente.req_cnaf || false,
+    req_bic_insulina: reqUti.includes('bic_insulina') || paciente.req_bic_insulina || false,
+    req_vmni: reqUti.includes('vmni') || paciente.req_vmni || false,
+    
+    req_vmi: reqUci.includes('vmi') || paciente.req_vmi || false,
+    req_procuramiento_o2: reqUci.includes('procuramiento_o2') || paciente.req_procuramiento_o2 || false,
+    
+    caso_socio_sanitario: casosEspeciales.includes('socio_sanitario') || paciente.caso_socio_sanitario || false,
+    caso_socio_judicial: casosEspeciales.includes('socio_judicial') || paciente.caso_socio_judicial || false,
+    caso_espera_cardiocirugia: casosEspeciales.includes('espera_cardiocirugia') || paciente.caso_espera_cardiocirugia || false,
+    
+    derivacion_solicitada: paciente.derivacion_solicitada || false,
+    derivacion_hospital_destino_id: paciente.derivacion_hospital_destino_id || '',
+    derivacion_motivo: paciente.derivacion_motivo || '',
+    alta_solicitada: paciente.alta_solicitada || false,
+    alta_motivo: paciente.alta_motivo || ''
+  };
 }
 
 export function PacienteForm({
@@ -30,69 +251,9 @@ export function PacienteForm({
   onError,
   onCancel
 }: PacienteFormProps) {
-  const [formData, setFormData] = useState<PacienteCreate>({
-    nombre: paciente?.nombre || '',
-    run: paciente?.run || '',
-    sexo: paciente?.sexo || 'hombre' as SexoEnum,
-    edad: paciente?.edad || 0,
-    diagnostico: paciente?.diagnostico || '',
-    tipo_enfermedad: paciente?.tipo_enfermedad || 'medica' as TipoEnfermedadEnum,
-    tipo_aislamiento: paciente?.tipo_aislamiento || 'ninguno' as TipoAislamientoEnum,
-    embarazada: paciente?.embarazada || false,
-    hospital_id: paciente?.hospital_id || hospitalId,
-    
-    // Requerimientos que no definen complejidad
-    req_kinesioterapia: paciente?.req_kinesioterapia || false,
-    req_control_sangre_1x: paciente?.req_control_sangre_1x || false,
-    req_curaciones: paciente?.req_curaciones || false,
-    req_tratamiento_ev_2x: paciente?.req_tratamiento_ev_2x || false,
-    
-    // Requerimientos baja complejidad
-    req_tratamiento_ev_3x: paciente?.req_tratamiento_ev_3x || false,
-    req_control_sangre_2x: paciente?.req_control_sangre_2x || false,
-    req_o2_naricera: paciente?.req_o2_naricera || false,
-    req_dolor_eva_7: paciente?.req_dolor_eva_7 || false,
-    req_o2_multiventuri: paciente?.req_o2_multiventuri || false,
-    req_curaciones_complejas: paciente?.req_curaciones_complejas || false,
-    req_aspiracion: paciente?.req_aspiracion || false,
-    req_observacion: paciente?.req_observacion || false,
-    req_observacion_motivo: paciente?.req_observacion_motivo || '',
-    req_irrigacion_vesical: paciente?.req_irrigacion_vesical || false,
-    req_procedimiento_invasivo: paciente?.req_procedimiento_invasivo || false,
-    req_procedimiento_invasivo_detalle: paciente?.req_procedimiento_invasivo_detalle || '',
-    
-    // Requerimientos UTI
-    req_drogas_vasoactivas: paciente?.req_drogas_vasoactivas || false,
-    req_sedacion: paciente?.req_sedacion || false,
-    req_monitorizacion: paciente?.req_monitorizacion || false,
-    req_monitorizacion_motivo: paciente?.req_monitorizacion_motivo || '',
-    req_o2_reservorio: paciente?.req_o2_reservorio || false,
-    req_dialisis: paciente?.req_dialisis || false,
-    req_cnaf: paciente?.req_cnaf || false,
-    req_bic_insulina: paciente?.req_bic_insulina || false,
-    req_vmni: paciente?.req_vmni || false,
-    
-    // Requerimientos UCI
-    req_vmi: paciente?.req_vmi || false,
-    req_procuramiento_o2: paciente?.req_procuramiento_o2 || false,
-    
-    // Casos especiales
-    caso_socio_sanitario: paciente?.caso_socio_sanitario || false,
-    caso_socio_judicial: paciente?.caso_socio_judicial || false,
-    caso_espera_cardiocirugia: paciente?.caso_espera_cardiocirugia || false,
-    
-    notas_adicionales: paciente?.notas_adicionales || '',
-    
-    // Derivación
-    derivacion_solicitada: false,
-    derivacion_hospital_destino_id: undefined,
-    derivacion_motivo: '',
-    
-    // Alta
-    alta_solicitada: false,
-    alta_motivo: ''
-  });
-
+  const [formData, setFormData] = useState<PacienteFormData>(() => 
+    initFormFromPaciente(paciente, hospitalId)
+  );
   const [loading, setLoading] = useState(false);
   const [showAltaWarning, setShowAltaWarning] = useState(false);
 
@@ -116,10 +277,14 @@ export function PacienteForm({
       onError('El nombre es requerido');
       return;
     }
-    if (!formData.run.trim()) {
-      onError('El RUN es requerido');
+    
+    // Validar formato de RUN: 12345678-9 o 1234567-K
+    const runPattern = /^\d{7,8}-[\dkK]$/;
+    if (!runPattern.test(formData.run.trim())) {
+      onError('El RUN debe tener el formato correcto (ej: 12345678-9)');
       return;
     }
+    
     if (formData.edad < 0 || formData.edad > 120) {
       onError('La edad debe estar entre 0 y 120 años');
       return;
@@ -129,13 +294,19 @@ export function PacienteForm({
       return;
     }
 
+    // Validar que haya hospital seleccionado
+    if (!formData.hospital_id) {
+      onError('Debe seleccionar un hospital');
+      return;
+    }
+
     // Validar alta con requerimientos
     if (formData.alta_solicitada) {
       const tieneRequerimientosAltos = formData.req_vmi || formData.req_procuramiento_o2 ||
         formData.req_drogas_vasoactivas || formData.req_sedacion || formData.req_monitorizacion ||
         formData.req_dialisis || formData.req_cnaf || formData.req_bic_insulina || formData.req_vmni ||
         formData.req_tratamiento_ev_3x || formData.req_dolor_eva_7 || formData.req_curaciones_complejas ||
-        formData.tipo_aislamiento === 'aereo';
+        formData.tipo_aislamiento === TipoAislamientoEnum.AEREO;
       
       if (tieneRequerimientosAltos && !formData.alta_motivo) {
         setShowAltaWarning(true);
@@ -157,14 +328,25 @@ export function PacienteForm({
 
     setLoading(true);
     try {
+      const apiData = convertFormToApiData(formData, isReevaluacion);
+      
       if (isReevaluacion && paciente) {
-        await api.actualizarPaciente(paciente.id, formData as PacienteUpdate);
+        await api.actualizarPaciente(paciente.id, apiData as PacienteUpdate);
       } else {
-        await api.crearPaciente(formData);
+        await api.crearPaciente(apiData as PacienteCreate);
       }
       onSubmit();
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Error al guardar paciente');
+      // Manejar error correctamente
+      if (err instanceof Error) {
+        onError(err.message);
+      } else if (typeof err === 'object' && err !== null) {
+        // Si es un objeto de error del API
+        const errorObj = err as { detail?: string; message?: string };
+        onError(errorObj.detail || errorObj.message || 'Error desconocido al guardar');
+      } else {
+        onError('Error al guardar paciente');
+      }
     } finally {
       setLoading(false);
     }
@@ -212,12 +394,12 @@ export function PacienteForm({
               onChange={handleChange}
               disabled={isReevaluacion}
             >
-              <option value="hombre">Hombre</option>
-              <option value="mujer">Mujer</option>
+              <option value="hombre">Masculino</option>
+              <option value="mujer">Femenino</option>
             </select>
           </div>
           <div className="form-group">
-            <label htmlFor="edad">Edad (años) *</label>
+            <label htmlFor="edad">Edad *</label>
             <input
               type="number"
               id="edad"
@@ -229,23 +411,37 @@ export function PacienteForm({
               required
             />
           </div>
-          {formData.sexo === 'mujer' && (
-            <div className="form-group checkbox-group">
-              <label>
-                <input
-                  type="checkbox"
-                  name="embarazada"
-                  checked={formData.embarazada}
-                  onChange={handleChange}
-                />
-                Embarazada
-              </label>
-            </div>
-          )}
+          <div className="form-group checkbox-group">
+            <label>
+              <input
+                type="checkbox"
+                name="es_embarazada"
+                checked={formData.es_embarazada}
+                onChange={handleChange}
+                disabled={formData.sexo === 'hombre'}
+              />
+              Embarazada
+            </label>
+          </div>
+          <div className="form-group">
+            <label htmlFor="tipo_paciente">Tipo de paciente *</label>
+            <select
+              id="tipo_paciente"
+              name="tipo_paciente"
+              value={formData.tipo_paciente}
+              onChange={handleChange}
+              disabled={isReevaluacion}
+            >
+              <option value="hospitalizado">Hospitalizado</option>
+              <option value="urgencia">Urgencia</option>
+              <option value="derivado">Derivado</option>
+              <option value="ambulatorio">Ambulatorio</option>
+            </select>
+          </div>
         </div>
       </section>
 
-      {/* Diagnóstico */}
+      {/* Información clínica */}
       <section className="form-section">
         <h3>Información Clínica</h3>
         <div className="form-grid">
@@ -256,7 +452,7 @@ export function PacienteForm({
               name="diagnostico"
               value={formData.diagnostico}
               onChange={handleChange}
-              rows={3}
+              rows={2}
               required
             />
           </div>
@@ -279,14 +475,14 @@ export function PacienteForm({
             </select>
           </div>
           <div className="form-group">
-            <label htmlFor="tipo_aislamiento">Tipo de aislamiento</label>
+            <label htmlFor="tipo_aislamiento">Aislamiento</label>
             <select
               id="tipo_aislamiento"
               name="tipo_aislamiento"
               value={formData.tipo_aislamiento}
               onChange={handleChange}
             >
-              <option value="ninguno">Ninguno</option>
+              <option value="ninguno">No requiere</option>
               <option value="contacto">Contacto</option>
               <option value="gotitas">Gotitas</option>
               <option value="aereo">Aéreo</option>
@@ -306,7 +502,7 @@ export function PacienteForm({
           <div className="checkbox-grid">
             <label><input type="checkbox" name="req_kinesioterapia" checked={formData.req_kinesioterapia} onChange={handleChange} /> Kinesioterapia</label>
             <label><input type="checkbox" name="req_control_sangre_1x" checked={formData.req_control_sangre_1x} onChange={handleChange} /> Control sangre 1x/día</label>
-            <label><input type="checkbox" name="req_curaciones" checked={formData.req_curaciones} onChange={handleChange} /> Curaciones simples</label>
+            <label><input type="checkbox" name="req_curaciones" checked={formData.req_curaciones} onChange={handleChange} /> Curaciones</label>
             <label><input type="checkbox" name="req_tratamiento_ev_2x" checked={formData.req_tratamiento_ev_2x} onChange={handleChange} /> Tratamiento EV ≤2x/día</label>
           </div>
         </div>
@@ -331,7 +527,7 @@ export function PacienteForm({
               <input
                 type="text"
                 name="req_observacion_motivo"
-                value={formData.req_observacion_motivo || ''}
+                value={formData.req_observacion_motivo}
                 onChange={handleChange}
                 placeholder="Motivo de observación"
                 className="sub-input"
@@ -346,7 +542,7 @@ export function PacienteForm({
               <input
                 type="text"
                 name="req_procedimiento_invasivo_detalle"
-                value={formData.req_procedimiento_invasivo_detalle || ''}
+                value={formData.req_procedimiento_invasivo_detalle}
                 onChange={handleChange}
                 placeholder="Detalle del procedimiento"
                 className="sub-input"
@@ -374,7 +570,7 @@ export function PacienteForm({
               <input
                 type="text"
                 name="req_monitorizacion_motivo"
-                value={formData.req_monitorizacion_motivo || ''}
+                value={formData.req_monitorizacion_motivo}
                 onChange={handleChange}
                 placeholder="Motivo de monitorización"
                 className="sub-input"
@@ -408,7 +604,7 @@ export function PacienteForm({
         <div className="form-group full-width">
           <textarea
             name="notas_adicionales"
-            value={formData.notas_adicionales || ''}
+            value={formData.notas_adicionales}
             onChange={handleChange}
             rows={3}
             placeholder="Información adicional relevante..."
@@ -437,7 +633,7 @@ export function PacienteForm({
                 <label>Hospital destino *</label>
                 <select
                   name="derivacion_hospital_destino_id"
-                  value={formData.derivacion_hospital_destino_id || ''}
+                  value={formData.derivacion_hospital_destino_id}
                   onChange={handleChange}
                 >
                   <option value="">Seleccionar hospital</option>
@@ -450,7 +646,7 @@ export function PacienteForm({
                 <label>Motivo de derivación *</label>
                 <textarea
                   name="derivacion_motivo"
-                  value={formData.derivacion_motivo || ''}
+                  value={formData.derivacion_motivo}
                   onChange={handleChange}
                   rows={2}
                   placeholder="Motivo de la derivación..."
@@ -481,7 +677,7 @@ export function PacienteForm({
               <label>Motivo del alta (requerido si tiene requerimientos activos)</label>
               <textarea
                 name="alta_motivo"
-                value={formData.alta_motivo || ''}
+                value={formData.alta_motivo}
                 onChange={handleChange}
                 rows={2}
                 placeholder="Motivo del alta..."
