@@ -193,9 +193,10 @@ class GestorColaPrioridad:
     
     def agregar_paciente(self, paciente: "Paciente", session=None) -> float:
         """Agrega un paciente a la cola de prioridad."""
+        # CORRECCIÓN PROBLEMA 4: Verificar si ya está en cola para evitar duplicados
         if paciente.id in self._pacientes_en_cola:
-            self.actualizar_prioridad(paciente, session)
-            return paciente.prioridad_calculada
+            # Ya existe, solo actualizar prioridad
+            return self.actualizar_prioridad(paciente, session)
         
         prioridad = calcular_prioridad_paciente(paciente)
         
@@ -224,6 +225,7 @@ class GestorColaPrioridad:
         """Actualiza la prioridad de un paciente en la cola."""
         prioridad = calcular_prioridad_paciente(paciente)
         
+        # Agregar nueva entrada con prioridad actualizada
         entrada = EntradaCola(
             prioridad_negativa=-prioridad,
             timestamp=datetime.utcnow(),
@@ -266,7 +268,7 @@ class GestorColaPrioridad:
         return True
     
     def eliminar_paciente(self, paciente_id: str, session=None, paciente: "Paciente" = None) -> bool:
-        """Alias de remover_paciente."""
+        """Alias de remover_paciente para mantener compatibilidad."""
         return self.remover_paciente(paciente_id, session, paciente)
     
     def pop_siguiente(self) -> Optional[str]:
@@ -285,9 +287,28 @@ class GestorColaPrioridad:
         return len(self._pacientes_en_cola) == 0
     
     def obtener_lista_ordenada(self, session=None) -> List[Dict]:
-        """Retorna la lista de pacientes ordenados por prioridad."""
+        """
+        Retorna la lista de pacientes ordenados por prioridad.
+        CORRECCIÓN PROBLEMA 4: Deduplicar pacientes - solo mostrar la entrada más prioritaria
+        """
+        # Filtrar solo entradas de pacientes que siguen en la cola
         entradas_validas = [e for e in self._heap if e.paciente_id in self._pacientes_en_cola]
-        entradas_ordenadas = sorted(entradas_validas, key=lambda x: x.prioridad_negativa)
+        
+        # CORRECCIÓN: Deduplicar por paciente_id, manteniendo solo la entrada más prioritaria
+        # (la que tiene prioridad_negativa más baja = prioridad real más alta)
+        pacientes_vistos = {}
+        for entrada in entradas_validas:
+            pid = entrada.paciente_id
+            if pid not in pacientes_vistos:
+                pacientes_vistos[pid] = entrada
+            else:
+                # Mantener la entrada con mayor prioridad (menor prioridad_negativa)
+                if entrada.prioridad_negativa < pacientes_vistos[pid].prioridad_negativa:
+                    pacientes_vistos[pid] = entrada
+        
+        # Convertir a lista y ordenar por prioridad
+        entradas_unicas = list(pacientes_vistos.values())
+        entradas_ordenadas = sorted(entradas_unicas, key=lambda x: x.prioridad_negativa)
         
         resultado = []
         for entrada in entradas_ordenadas:
@@ -328,6 +349,25 @@ class GestorColaPrioridad:
         self._pacientes_en_cola = set()
         self._contador = 0
     
+    def compactar_heap(self):
+        """
+        Compacta el heap eliminando entradas obsoletas.
+        Útil para mantenimiento periódico.
+        """
+        entradas_validas = [e for e in self._heap if e.paciente_id in self._pacientes_en_cola]
+        
+        # Deduplicar manteniendo solo la más reciente por paciente
+        pacientes_vistos = {}
+        for entrada in entradas_validas:
+            pid = entrada.paciente_id
+            if pid not in pacientes_vistos:
+                pacientes_vistos[pid] = entrada
+            elif entrada.contador > pacientes_vistos[pid].contador:
+                pacientes_vistos[pid] = entrada
+        
+        self._heap = list(pacientes_vistos.values())
+        heapq.heapify(self._heap)
+    
     def tamano(self) -> int:
         return len(self._pacientes_en_cola)
     
@@ -365,6 +405,7 @@ class GestorColasGlobal:
         return cola.remover_paciente(paciente_id, session, paciente)
     
     def eliminar_paciente(self, paciente_id: str, hospital_id: str, session=None, paciente=None) -> bool:
+        """Alias de remover_paciente para mantener compatibilidad."""
         return self.remover_paciente(paciente_id, hospital_id, session, paciente)
     
     def sincronizar_cola_con_db(self, hospital_id: str, session) -> int:
@@ -375,9 +416,11 @@ class GestorColasGlobal:
         cola = self.obtener_cola(hospital_id)
         cola.limpiar_cola()
         
+        # Obtener todos los pacientes del hospital
         query = select(Paciente).where(Paciente.hospital_id == hospital_id)
         todos_pacientes = session.exec(query).all()
         
+        # Agregar solo los que necesitan estar en cola
         for paciente in todos_pacientes:
             necesita_cola = (
                 paciente.en_lista_espera or

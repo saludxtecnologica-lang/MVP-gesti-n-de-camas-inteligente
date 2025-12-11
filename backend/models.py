@@ -152,6 +152,10 @@ class Cama(SQLModel, table=True):
     mensaje_estado: Optional[str] = Field(default=None)
     cama_asignada_destino: Optional[str] = Field(default=None)
     
+    # CORRECCIÓN: Campo para rastrear el paciente derivado asociado a esta cama
+    # Cuando una cama está en DERIVACION_CONFIRMADA, este campo guarda el ID del paciente
+    paciente_derivado_id: Optional[str] = Field(default=None)
+    
     # Relaciones
     sala: Sala = Relationship(back_populates="camas")
     paciente_actual: Optional["Paciente"] = Relationship(
@@ -206,6 +210,9 @@ class Paciente(SQLModel, table=True):
     cama_id: Optional[str] = Field(default=None, foreign_key="cama.id")
     cama_destino_id: Optional[str] = Field(default=None, foreign_key="cama.id")
     
+        # Se guarda cuando se acepta la derivación para poder liberarla después
+    cama_origen_derivacion_id: Optional[str] = Field(default=None)
+    
     # Estado en lista de espera
     en_lista_espera: bool = Field(default=False)
     estado_lista_espera: EstadoListaEsperaEnum = Field(default=EstadoListaEsperaEnum.ESPERANDO)
@@ -215,6 +222,10 @@ class Paciente(SQLModel, table=True):
     # Estados especiales
     requiere_nueva_cama: bool = Field(default=False)
     en_espera: bool = Field(default=False)
+    
+    # El sistema espera 2 minutos antes de cambiar a "cama en espera" o "alta sugerida"
+    oxigeno_desactivado_at: Optional[datetime] = Field(default=None)
+    requerimientos_oxigeno_previos: Optional[str] = Field(default=None)  # JSON
     
     # Derivación
     derivacion_hospital_destino_id: Optional[str] = Field(default=None)
@@ -271,6 +282,8 @@ class ConfiguracionSistema(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     modo_manual: bool = Field(default=False)
     tiempo_limpieza_segundos: int = Field(default=60)
+    #Tiempo de espera post-desactivación de oxígeno (2 minutos por defecto)
+    tiempo_espera_oxigeno_segundos: int = Field(default=120)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

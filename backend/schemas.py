@@ -30,27 +30,22 @@ class PacienteCreate(BaseModel):
     tipo_aislamiento: TipoAislamientoEnum = TipoAislamientoEnum.NINGUNO
     notas_adicionales: Optional[str] = None
     
-    # Requerimientos clínicos como listas
     requerimientos_no_definen: List[str] = []
     requerimientos_baja: List[str] = []
     requerimientos_uti: List[str] = []
     requerimientos_uci: List[str] = []
     casos_especiales: List[str] = []
     
-    # Campos especiales
     motivo_observacion: Optional[str] = None
     justificacion_observacion: Optional[str] = None
     procedimiento_invasivo: Optional[str] = None
     
-    # Tipo de paciente
     tipo_paciente: TipoPacienteEnum
     hospital_id: str
     
-    # Derivación
     derivacion_hospital_destino_id: Optional[str] = None
     derivacion_motivo: Optional[str] = None
     
-    # Alta
     alta_solicitada: bool = False
     alta_motivo: Optional[str] = None
 
@@ -122,7 +117,6 @@ class PacienteResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
-    # Requerimientos
     requerimientos_no_definen: List[str] = []
     requerimientos_baja: List[str] = []
     requerimientos_uti: List[str] = []
@@ -136,10 +130,6 @@ class PacienteResponse(BaseModel):
     class Config:
         from_attributes = True
 
-
-# ============================================
-# SCHEMAS DE CAMA
-# ============================================
 
 class CamaResponse(BaseModel):
     """Schema de respuesta para cama"""
@@ -163,16 +153,10 @@ class CamaResponse(BaseModel):
 
 
 class CamaBloquearRequest(BaseModel):
-    """Schema para bloquear/desbloquear cama"""
     bloquear: bool
 
 
-# ============================================
-# SCHEMAS DE HOSPITAL
-# ============================================
-
 class HospitalResponse(BaseModel):
-    """Schema de respuesta para hospital"""
     id: str
     nombre: str
     codigo: str
@@ -188,7 +172,6 @@ class HospitalResponse(BaseModel):
 
 
 class ServicioResponse(BaseModel):
-    """Schema de respuesta para servicio"""
     id: str
     nombre: str
     codigo: str
@@ -202,7 +185,6 @@ class ServicioResponse(BaseModel):
 
 
 class SalaResponse(BaseModel):
-    """Schema de respuesta para sala"""
     id: str
     numero: int
     es_individual: bool
@@ -214,12 +196,7 @@ class SalaResponse(BaseModel):
         from_attributes = True
 
 
-# ============================================
-# SCHEMAS DE LISTA DE ESPERA
-# ============================================
-
 class PacienteListaEsperaResponse(BaseModel):
-    """Schema para paciente en lista de espera"""
     paciente_id: str
     nombre: str
     run: str
@@ -239,30 +216,22 @@ class PacienteListaEsperaResponse(BaseModel):
 
 
 class ListaEsperaResponse(BaseModel):
-    """Schema de respuesta para lista de espera"""
     hospital_id: str
     total_pacientes: int
     pacientes: List[PacienteListaEsperaResponse]
 
 
-# ============================================
-# SCHEMAS DE DERIVACIÓN
-# ============================================
-
 class DerivacionRequest(BaseModel):
-    """Schema para solicitar derivación"""
     hospital_destino_id: str
     motivo: str
 
 
 class DerivacionAccionRequest(BaseModel):
-    """Schema para aceptar/rechazar derivación"""
     accion: str = Field(..., pattern='^(aceptar|rechazar)$')
     motivo_rechazo: Optional[str] = None
 
 
 class PacienteDerivadoResponse(BaseModel):
-    """Schema para paciente en lista de derivados"""
     paciente_id: str
     nombre: str
     run: str
@@ -276,44 +245,31 @@ class PacienteDerivadoResponse(BaseModel):
     diagnostico: str
 
 
-# ============================================
-# SCHEMAS DE TRASLADO
-# ============================================
-
 class TrasladoManualRequest(BaseModel):
-    """Schema para traslado manual"""
     paciente_id: str
     cama_destino_id: str
 
 
 class IntercambioRequest(BaseModel):
-    """Schema para intercambio de pacientes"""
     paciente_a_id: str
     paciente_b_id: str
 
 
-# ============================================
-# SCHEMAS DE CONFIGURACIÓN
-# ============================================
-
 class ConfiguracionResponse(BaseModel):
-    """Schema de respuesta para configuración"""
     modo_manual: bool
     tiempo_limpieza_segundos: int
+    # CORRECCIÓN: Agregar campo para tiempo de espera de oxígeno
+    tiempo_espera_oxigeno_segundos: Optional[int] = 120
 
 
 class ConfiguracionUpdate(BaseModel):
-    """Schema para actualizar configuración"""
     modo_manual: Optional[bool] = None
     tiempo_limpieza_segundos: Optional[int] = None
+    # CORRECCIÓN: Agregar campo para tiempo de espera de oxígeno
+    tiempo_espera_oxigeno_segundos: Optional[int] = None
 
-
-# ============================================
-# SCHEMAS DE ESTADÍSTICAS
-# ============================================
 
 class EstadisticasHospitalResponse(BaseModel):
-    """Schema de estadísticas por hospital"""
     hospital_id: str
     hospital_nombre: str
     total_camas: int
@@ -328,25 +284,18 @@ class EstadisticasHospitalResponse(BaseModel):
 
 
 class EstadisticasGlobalesResponse(BaseModel):
-    """Schema de estadísticas globales"""
     hospitales: List[EstadisticasHospitalResponse]
     total_camas_sistema: int
     total_pacientes_sistema: int
     ocupacion_promedio: float
 
 
-# ============================================
-# SCHEMAS DE RESPUESTA GENÉRICA
-# ============================================
-
 class MessageResponse(BaseModel):
-    """Schema de respuesta genérica"""
     success: bool
     message: str
     data: Optional[dict] = None
 
 
 class ErrorResponse(BaseModel):
-    """Schema de error"""
     error: str
     detail: Optional[str] = None
