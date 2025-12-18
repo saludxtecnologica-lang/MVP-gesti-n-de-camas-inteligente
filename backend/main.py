@@ -39,7 +39,7 @@ from logic import (
     procesar_camas_en_limpieza, actualizar_sexo_sala_si_vacia,
     asignar_cama_a_paciente, determinar_estado_cama_tras_reevaluacion,
     obtener_requerimientos_oxigeno_actuales, procesar_pacientes_espera_oxigeno,
-    cama_es_compatible 
+    cama_es_compatible, omitir_pausa_oxigeno
 )
 
 from init_data import inicializar_datos
@@ -679,9 +679,16 @@ async def actualizar_paciente(
         
         # Manejar espera por desactivación de oxígeno
         if necesita_espera_oxigeno:
-            # Iniciar periodo de espera de 2 minutos
-            paciente.oxigeno_desactivado_at = datetime.utcnow()
-            paciente.requerimientos_oxigeno_previos = json.dumps(reqs_oxigeno_previos)
+            # Verificar si ya existe una pausa en curso
+            if not paciente.oxigeno_desactivado_at:
+                # Nueva pausa - iniciar periodo de espera
+                paciente.oxigeno_desactivado_at = datetime.utcnow()
+                paciente.requerimientos_oxigeno_previos = json.dumps(reqs_oxigeno_previos)
+                print(f"[OXÍGENO] Nueva pausa iniciada para {paciente.nombre}")
+            else:
+                # Pausa ya existe - mantener timestamp original
+                print(f"[OXÍGENO] Pausa existente mantenida para {paciente.nombre}")
+            
             # Mantener cama ocupada durante el periodo de espera
             cama_actual.estado = EstadoCamaEnum.OCUPADA
             cama_actual.mensaje_estado = "Evaluando desescalaje de oxígeno"
@@ -704,39 +711,28 @@ async def actualizar_paciente(
         cama_actual.estado = nuevo_estado
         cama_actual.mensaje_estado = mensaje
         
-        # Si requiere nueva cama (sin espera de oxígeno), agregar a lista de espera
+        # Si requiere nueva cama, la cama pasa a CAMA_EN_ESPERA
+        # pero NO se agrega automáticamente a la lista de espera.
+        # El usuario debe hacer clic en "Buscar cama" para iniciar la búsqueda.
         if nuevo_estado == EstadoCamaEnum.CAMA_EN_ESPERA:
             paciente.requiere_nueva_cama = True
+            # NO agregar a lista de espera automáticamente
+            # Solo marcar que necesita nueva cama
             
-            # Solo agregar a lista de espera si no está ya en ella
-            if not paciente.en_lista_espera:
-                # Cambiar estado de cama a TRASLADO_SALIENTE para indicar
-                # que el paciente está buscando otra cama
-                cama_actual.estado = EstadoCamaEnum.TRASLADO_SALIENTE
-                cama_actual.mensaje_estado = mensaje or "Paciente requiere nueva cama"
-                
-                # Marcar como HOSPITALIZADO para la cola de prioridad
-                paciente.tipo_paciente = TipoPacienteEnum.HOSPITALIZADO
-                paciente.en_lista_espera = True
-                paciente.timestamp_lista_espera = datetime.utcnow()
-                paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-                
-                session.add(cama_actual)
-                session.add(paciente)
-                session.commit()
-                
-                # Agregar a la cola de prioridad
-                gestor_colas_global.agregar_paciente(paciente, paciente.hospital_id, session)
-                
-                await manager.broadcast({
-                    "tipo": "paciente_requiere_nueva_cama",
-                    "hospital_id": paciente.hospital_id,
-                    "paciente_id": paciente.id,
-                    "cama_actual_id": cama_actual.id,
-                    "motivo": mensaje
-                })
-                
-                return crear_paciente_response(paciente)
+            session.add(cama_actual)
+            session.add(paciente)
+            session.commit()
+            
+            await manager.broadcast({
+                "tipo": "paciente_requiere_nueva_cama",
+                "hospital_id": paciente.hospital_id,
+                "paciente_id": paciente.id,
+                "cama_actual_id": cama_actual.id,
+                "motivo": mensaje,
+                "estado": "cama_en_espera"
+            })
+            
+            return crear_paciente_response(paciente)
         else:
             paciente.requiere_nueva_cama = False
         
@@ -771,29 +767,152 @@ def obtener_prioridad_paciente(paciente_id: str, session: Session = Depends(get_
 
 @app.get("/api/hospitales/{hospital_id}/lista-espera", response_model=ListaEsperaResponse)
 def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_session)):
-    """Obtiene la lista de espera de un hospital."""
+    """
+    Obtiene la lista de espera de un hospital con información de origen y destino.
+    
+    """
     cola = gestor_colas_global.obtener_cola(hospital_id)
     lista = cola.obtener_lista_ordenada(session)
     
     pacientes = []
     for item in lista:
+        paciente_id = item["paciente_id"]
+        paciente = session.get(Paciente, paciente_id)
+        
+        if not paciente:
+            continue
+        
+        # ============================================
+        # Determinar información de ORIGEN
+        # ============================================
+        origen_tipo = None
+        origen_hospital_nombre = None
+        origen_hospital_codigo = None
+        origen_servicio_nombre = None
+        origen_cama_identificador = None
+        
+        # CASO 1: Paciente DERIVADO (viene de otro hospital)
+        if paciente.tipo_paciente == TipoPacienteEnum.DERIVADO and paciente.derivacion_estado == "aceptado":
+            origen_tipo = "derivado"
+            
+            # Buscar información de la cama de origen de derivación
+            cama_origen_id = paciente.cama_origen_derivacion_id
+            if cama_origen_id:
+                cama_origen = session.get(Cama, cama_origen_id)
+                if cama_origen:
+                    origen_cama_identificador = cama_origen.identificador
+                    
+                    # CORRECCIÓN: Cargar sala explícitamente usando session.get()
+                    sala_origen = session.get(Sala, cama_origen.sala_id)
+                    if sala_origen:
+                        # CORRECCIÓN: Cargar servicio explícitamente
+                        servicio_origen = session.get(Servicio, sala_origen.servicio_id)
+                        if servicio_origen:
+                            origen_servicio_nombre = servicio_origen.nombre
+                            
+                            # Cargar hospital de origen
+                            hospital_origen = session.get(Hospital, servicio_origen.hospital_id)
+                            if hospital_origen:
+                                origen_hospital_nombre = hospital_origen.nombre
+                                origen_hospital_codigo = hospital_origen.codigo
+        
+        # CASO 2: Paciente HOSPITALIZADO (tiene cama actual, busca nueva)
+        elif paciente.cama_id:
+            origen_tipo = "hospitalizado"
+            cama_actual = session.get(Cama, paciente.cama_id)
+            
+            if cama_actual:
+                origen_cama_identificador = cama_actual.identificador
+                
+                # CORRECCIÓN: Cargar sala explícitamente
+                sala_actual = session.get(Sala, cama_actual.sala_id)
+                if sala_actual:
+                    # CORRECCIÓN: Cargar servicio explícitamente
+                    servicio_actual = session.get(Servicio, sala_actual.servicio_id)
+                    if servicio_actual:
+                        origen_servicio_nombre = servicio_actual.nombre
+        
+        # CASO 3: Paciente de URGENCIA (sin cama)
+        elif paciente.tipo_paciente == TipoPacienteEnum.URGENCIA:
+            origen_tipo = "urgencia"
+        
+        # CASO 4: Paciente AMBULATORIO (sin cama)
+        elif paciente.tipo_paciente == TipoPacienteEnum.AMBULATORIO:
+            origen_tipo = "ambulatorio"
+        
+        # Caso por defecto
+        else:
+            origen_tipo = paciente.tipo_paciente.value if paciente.tipo_paciente else "desconocido"
+        
+        # ============================================
+        # Determinar SERVICIO DESTINO
+        # ============================================
+        servicio_destino = None
+        complejidad = paciente.complejidad_requerida
+        
+        # Por complejidad
+        if complejidad == ComplejidadEnum.ALTA:
+            servicio_destino = "UCI"
+        elif complejidad == ComplejidadEnum.MEDIA:
+            servicio_destino = "UTI"
+        else:
+            # Por tipo de enfermedad
+            tipo_enf = paciente.tipo_enfermedad
+            
+            if tipo_enf == TipoEnfermedadEnum.OBSTETRICA:
+                servicio_destino = "Obstetricia"
+            elif tipo_enf == TipoEnfermedadEnum.GINECOLOGICA:
+                servicio_destino = "Ginecología"
+            elif tipo_enf in [TipoEnfermedadEnum.QUIRURGICA, TipoEnfermedadEnum.TRAUMATOLOGICA, 
+                              TipoEnfermedadEnum.NEUROLOGICA, TipoEnfermedadEnum.UROLOGICA]:
+                servicio_destino = "Cirugía"
+            elif tipo_enf == TipoEnfermedadEnum.GERIATRICA:
+                servicio_destino = "Medicina"
+            else:
+                servicio_destino = "Medicina"
+            
+            # Verificar si es pediátrico
+            if paciente.edad_categoria == EdadCategoriaEnum.PEDIATRICO:
+                servicio_destino = "Pediatría"
+        
+        # Agregar info de aislamiento si corresponde
+        if paciente.tipo_aislamiento in [
+            TipoAislamientoEnum.AEREO,
+            TipoAislamientoEnum.AMBIENTE_PROTEGIDO,
+            TipoAislamientoEnum.ESPECIAL
+        ]:
+            servicio_destino = f"Aislamiento ({servicio_destino})"
+        elif paciente.tipo_aislamiento in [TipoAislamientoEnum.CONTACTO, TipoAislamientoEnum.GOTITAS]:
+            servicio_destino = f"{servicio_destino} (Aislamiento)"
+        
+        # ============================================
+        # Construir respuesta
+        # ============================================
         pacientes.append(PacienteListaEsperaResponse(
-            paciente_id=item["paciente_id"],
-            nombre=item.get("nombre", ""),
-            run=item.get("run", ""),
+            paciente_id=paciente_id,
+            nombre=item.get("nombre", paciente.nombre),
+            run=item.get("run", paciente.run),
             prioridad=item["prioridad"],
             posicion=item["posicion"],
-            tiempo_espera_min=item.get("tiempo_espera_min", 0),
+            tiempo_espera_min=item.get("tiempo_espera_min", paciente.tiempo_espera_min or 0),
             estado_lista=item.get("estado_lista", "esperando"),
-            tipo_paciente=item.get("tipo_paciente", "urgencia"),
-            complejidad=item.get("complejidad", "baja"),
-            sexo=item.get("sexo", "hombre"),
-            edad=item.get("edad", 0),
-            tipo_enfermedad=item.get("tipo_enfermedad", "medica"),
-            tipo_aislamiento=item.get("tipo_aislamiento", "ninguno"),
-            tiene_cama_actual=item.get("tiene_cama_actual", False),
-            cama_actual_id=item.get("cama_actual_id"),
-            timestamp=item["timestamp"]
+            tipo_paciente=item.get("tipo_paciente", paciente.tipo_paciente.value if paciente.tipo_paciente else "urgencia"),
+            complejidad=item.get("complejidad", paciente.complejidad_requerida.value if paciente.complejidad_requerida else "baja"),
+            sexo=item.get("sexo", paciente.sexo.value if paciente.sexo else "hombre"),
+            edad=item.get("edad", paciente.edad or 0),
+            tipo_enfermedad=item.get("tipo_enfermedad", paciente.tipo_enfermedad.value if paciente.tipo_enfermedad else "medica"),
+            tipo_aislamiento=item.get("tipo_aislamiento", paciente.tipo_aislamiento.value if paciente.tipo_aislamiento else "ninguno"),
+            tiene_cama_actual=paciente.cama_id is not None,
+            cama_actual_id=paciente.cama_id,
+            timestamp=item["timestamp"],
+            # CAMPOS DE ORIGEN
+            origen_tipo=origen_tipo,
+            origen_hospital_nombre=origen_hospital_nombre,
+            origen_hospital_codigo=origen_hospital_codigo,
+            origen_servicio_nombre=origen_servicio_nombre,
+            origen_cama_identificador=origen_cama_identificador,
+            # CAMPO DE DESTINO
+            servicio_destino=servicio_destino
         ))
     
     return ListaEsperaResponse(
@@ -801,7 +920,6 @@ def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_sessio
         total_pacientes=len(pacientes),
         pacientes=pacientes
     )
-
 
 @app.post("/api/pacientes/{paciente_id}/buscar-cama", response_model=MessageResponse)
 async def buscar_nueva_cama(paciente_id: str, session: Session = Depends(get_session)):
@@ -872,23 +990,62 @@ async def cancelar_busqueda_cama(paciente_id: str, session: Session = Depends(ge
 
 @app.post("/api/traslados/completar/{paciente_id}", response_model=MessageResponse)
 async def completar_traslado_endpoint(paciente_id: str, session: Session = Depends(get_session)):
-    """Completa el traslado de un paciente a su cama asignada."""
+    """
+    Completa el traslado de un paciente a su cama asignada.
+    
+    MEJORAS:
+    - Detecta y notifica si el paciente no es compatible con la cama
+    - Detecta y notifica si el paciente califica para alta sugerida
+    """
     resultado = completar_traslado(paciente_id, session)
     
     if "error" in resultado:
         raise HTTPException(status_code=400, detail=resultado["error"])
     
-    await manager.send_notification({
-        "tipo": "traslado_completado",
-        "paciente_id": paciente_id,
-        "cama_id": resultado.get("cama_nueva_id")
-    }, notification_type="asignacion")
+    # CASO 1: Requiere nueva cama por incompatibilidad
+    if resultado.get("requiere_nueva_cama"):
+        await manager.send_notification({
+            "tipo": "traslado_completado_con_incompatibilidad",
+            "paciente_id": paciente_id,
+            "cama_id": resultado.get("cama_nueva_id"),
+            "motivo_incompatibilidad": resultado.get("motivo_incompatibilidad"),
+            "message": f"Traslado completado - Paciente requiere nueva cama: {resultado.get('motivo_incompatibilidad')}"
+        }, notification_type="warning", play_sound=True)
+        
+        return MessageResponse(
+            success=True,
+            message=f"Traslado completado. ADVERTENCIA: {resultado.get('advertencia')}",
+            data=resultado
+        )
     
-    return MessageResponse(
-        success=True,
-        message="Traslado completado correctamente",
-        data=resultado
-    )
+    # CASO 2: Califica para alta sugerida
+    elif resultado.get("califica_alta"):
+        await manager.send_notification({
+            "tipo": "traslado_completado_alta_sugerida",
+            "paciente_id": paciente_id,
+            "cama_id": resultado.get("cama_nueva_id"),
+            "message": "Traslado completado - Paciente califica para alta"
+        }, notification_type="info", play_sound=True)
+        
+        return MessageResponse(
+            success=True,
+            message="Traslado completado. Paciente sin requerimientos de hospitalización - Alta sugerida.",
+            data=resultado
+        )
+    
+    # CASO 3: Todo normal - cama ocupada
+    else:
+        await manager.send_notification({
+            "tipo": "traslado_completado",
+            "paciente_id": paciente_id,
+            "cama_id": resultado.get("cama_nueva_id")
+        }, notification_type="asignacion")
+        
+        return MessageResponse(
+            success=True,
+            message="Traslado completado correctamente",
+            data=resultado
+        )
 
 
 @app.post("/api/traslados/cancelar/{paciente_id}", response_model=MessageResponse)
@@ -992,8 +1149,11 @@ async def accion_derivacion(
     """
     Acepta o rechaza una derivación.
     
-    CORRECCIÓN: Al rechazar, usa cama_origen_derivacion_id en lugar de cama_id
-    porque cuando se acepta la derivación, cama_id se limpia.
+    CORRECCIONES APLICADAS:
+    - Al rechazar, restaura correctamente el hospital_id al hospital de origen
+    - Maneja el caso cuando cama_origen_derivacion_id tiene la referencia
+    - Maneja el caso cuando la cama origen está en DERIVACION_CONFIRMADA vs ESPERA_DERIVACION
+    - Limpia correctamente todas las referencias de derivación
     """
     paciente = session.get(Paciente, paciente_id)
     if not paciente:
@@ -1003,9 +1163,9 @@ async def accion_derivacion(
         raise HTTPException(status_code=400, detail="La derivación no está pendiente")
     
     hospital_destino_id = paciente.derivacion_hospital_destino_id
-    hospital_origen_id = paciente.hospital_id
+    hospital_origen_id = paciente.hospital_id  # En estado "pendiente", aún tiene el hospital de origen
     
-    # CORRECCIÓN: Usar cama_origen_derivacion_id si existe, sino cama_id
+    # Obtener la cama de origen (puede estar en cama_id o cama_origen_derivacion_id)
     cama_origen_id = paciente.cama_origen_derivacion_id or paciente.cama_id
     
     if data.accion == "aceptar":
@@ -1026,7 +1186,7 @@ async def accion_derivacion(
         paciente.timestamp_lista_espera = datetime.utcnow()
         paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
         
-        # CORRECCIÓN: Guardar referencia a cama origen para poder restaurarla después
+        # Guardar referencia a cama origen para poder restaurarla después
         paciente.cama_origen_derivacion_id = cama_origen_id
         # Limpiar cama_id porque la cama queda en hospital origen
         paciente.cama_id = None
@@ -1057,20 +1217,17 @@ async def accion_derivacion(
         paciente.derivacion_estado = "rechazado"
         paciente.derivacion_motivo_rechazo = data.motivo_rechazo
         
-        # CORRECCIÓN: Usar cama_origen_derivacion_id si existe (caso de re-rechazo después de volver a lista)
+        # CORRECCIÓN: Obtener la cama correcta a actualizar
         cama_a_actualizar_id = paciente.cama_origen_derivacion_id or paciente.cama_id
         
         if cama_a_actualizar_id:
             cama_origen = session.get(Cama, cama_a_actualizar_id)
             if cama_origen:
-                # Verificar si necesita otra cama
-                if paciente.requiere_nueva_cama:
-                    cama_origen.estado = EstadoCamaEnum.CAMA_EN_ESPERA
-                    cama_origen.mensaje_estado = "Paciente requiere nueva cama"
-                else:
-                    cama_origen.estado = EstadoCamaEnum.OCUPADA
-                    cama_origen.mensaje_estado = None
+                # La cama vuelve a estado OCUPADA normal
+                cama_origen.estado = EstadoCamaEnum.OCUPADA
+                cama_origen.mensaje_estado = None
                 cama_origen.paciente_derivado_id = None
+                cama_origen.cama_asignada_destino = None
                 session.add(cama_origen)
                 
                 # CORRECCIÓN: Restaurar cama_id del paciente
@@ -1079,6 +1236,10 @@ async def accion_derivacion(
         # Limpiar referencias de derivación
         paciente.cama_origen_derivacion_id = None
         paciente.en_lista_espera = False
+        paciente.cama_destino_id = None
+        
+        # CORRECCIÓN: No necesita cambiar hospital_id porque en estado "pendiente"
+        # el paciente aún tiene el hospital de origen
         
         session.add(paciente)
         session.commit()
@@ -1258,6 +1419,52 @@ async def cancelar_alta_endpoint(paciente_id: str, session: Session = Depends(ge
     
     return MessageResponse(success=True, message="Alta cancelada")
 
+@app.post("/api/pacientes/{paciente_id}/omitir-pausa-oxigeno", response_model=MessageResponse)
+async def omitir_pausa_oxigeno_endpoint(
+    paciente_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Omite el periodo de espera por desactivación de oxígeno.
+    
+    Permite saltar el tiempo de espera de 2 minutos que se activa
+    cuando se desactiva un requerimiento de oxígeno del paciente.
+    
+    Tras omitir, el sistema evalúa inmediatamente:
+    - Si requiere cambio de cama -> CAMA_EN_ESPERA
+    - Si califica para alta -> ALTA_SUGERIDA
+    - Si está estable -> OCUPADA
+    """
+    paciente = session.get(Paciente, paciente_id)
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    
+    if not paciente.oxigeno_desactivado_at:
+        raise HTTPException(
+            status_code=400, 
+            detail="El paciente no está en periodo de espera por oxígeno"
+        )
+    
+    resultado = omitir_pausa_oxigeno(paciente_id, session)
+    
+    if "error" in resultado:
+        raise HTTPException(status_code=400, detail=resultado["error"])
+    
+    # Notificar cambio via WebSocket
+    await manager.broadcast({
+        "tipo": "pausa_oxigeno_omitida",
+        "paciente_id": paciente_id,
+        "hospital_id": paciente.hospital_id,
+        "nuevo_estado": resultado.get("nuevo_estado"),
+        "cama_id": resultado.get("cama_id"),
+        "message": f"Pausa de oxígeno omitida para {resultado.get('paciente_nombre', 'paciente')}"
+    })
+    
+    return MessageResponse(
+        success=True,
+        message=f"Pausa de oxígeno omitida. Nuevo estado: {resultado.get('nuevo_estado', 'actualizado')}",
+        data=resultado
+    )
 
 # ============================================
 # ENDPOINTS DE MODO MANUAL
@@ -1414,10 +1621,13 @@ async def desactivar_modo_manual(session: Session):
         "tipo": "modo_automatico_activado"
     })
 
-
 @app.post("/api/manual/trasladar", response_model=MessageResponse)
 async def traslado_manual(data: TrasladoManualRequest, session: Session = Depends(get_session)):
-    """Realiza un traslado manual de paciente (solo en modo manual)."""
+    """
+    Realiza un traslado manual de paciente (solo en modo manual).
+    
+    MEJORA: Verifica compatibilidad al asignar la cama.
+    """
     config = session.exec(select(ConfiguracionSistema)).first()
     if not config or not config.modo_manual:
         raise HTTPException(status_code=400, detail="El modo manual no está activado")
@@ -1433,7 +1643,16 @@ async def traslado_manual(data: TrasladoManualRequest, session: Session = Depend
     if cama_destino.estado != EstadoCamaEnum.LIBRE:
         raise HTTPException(status_code=400, detail="La cama destino no está libre")
     
-    # Liberar cama origen si existe
+    # ========== VERIFICAR COMPATIBILIDAD ANTES DE ASIGNAR ==========
+    es_compatible, razon_incompatibilidad = cama_es_compatible(cama_destino, paciente, session)
+    
+    if not es_compatible:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"La cama no es compatible con el paciente: {razon_incompatibilidad}"
+        )
+    
+    # ========== LIBERAR CAMA ORIGEN SI EXISTE ==========
     if paciente.cama_id:
         cama_origen = session.get(Cama, paciente.cama_id)
         if cama_origen:
@@ -1444,7 +1663,7 @@ async def traslado_manual(data: TrasladoManualRequest, session: Session = Depend
             
             actualizar_sexo_sala_si_vacia(cama_origen.sala_id, session)
     
-    # Asignar nueva cama
+    # ========== ASIGNAR NUEVA CAMA ==========
     paciente.cama_id = cama_destino.id
     paciente.cama_destino_id = None
     paciente.en_lista_espera = False
@@ -1452,11 +1671,15 @@ async def traslado_manual(data: TrasladoManualRequest, session: Session = Depend
     session.add(paciente)
     
     cama_destino.estado = EstadoCamaEnum.OCUPADA
+    cama_destino.mensaje_estado = None
     session.add(cama_destino)
     
-    # Actualizar sexo de sala
+    # ========== ACTUALIZAR SEXO DE SALA ==========
     sala = cama_destino.sala
-    if not sala.es_individual and not sala.sexo_asignado:
+    if not sala:
+        sala = session.get(Sala, cama_destino.sala_id)
+    
+    if sala and not sala.es_individual and not sala.sexo_asignado:
         sala.sexo_asignado = paciente.sexo
         session.add(sala)
     

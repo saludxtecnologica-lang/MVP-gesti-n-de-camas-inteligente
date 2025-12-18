@@ -20,11 +20,27 @@ import { PacienteDetalle } from './components/PacienteDetalle';
 import { ListaEspera } from './components/ListaEspera';
 import { ListaDerivados } from './components/ListaDerivados';
 import { Estadisticas } from './components/Estadisticas';
+import { ModalAsignacionManual } from './components/Modalasignacionmanual';
+import { ModalIntercambio } from './components/Modalintercambio';
 import * as api from './services/api';
 import type { Paciente, Cama, TipoServicioEnum } from './types/Index';
 
 type Vista = 'dashboard' | 'listaEspera' | 'derivados' | 'estadisticas';
 type ModalType = 'paciente' | 'reevaluar' | 'verPaciente' | 'configuracion' | null;
+
+// CORRECCIÓN PROBLEMA 1: Interfaces para modales de modo manual
+interface ModalAsignacionState {
+  open: boolean;
+  pacienteId: string | null;
+  paciente: Paciente | null;
+  fromLista?: boolean;
+}
+
+interface ModalIntercambioState {
+  open: boolean;
+  pacienteId: string | null;
+  paciente: Paciente | null;
+}
 
 function App() {
   const {
@@ -53,12 +69,25 @@ function App() {
   const [filtroServicio, setFiltroServicio] = useState<TipoServicioEnum | 'todos'>('todos');
   const [alertMessage, setAlertMessage] = useState<{ tipo: 'success' | 'error' | 'info'; mensaje: string } | null>(null);
 
+  // CORRECCIÓN PROBLEMA 1: Estados para modales de modo manual
+  const [modalAsignacion, setModalAsignacion] = useState<ModalAsignacionState>({
+    open: false,
+    pacienteId: null,
+    paciente: null,
+    fromLista: false
+  });
+
+  const [modalIntercambio, setModalIntercambio] = useState<ModalIntercambioState>({
+    open: false,
+    pacienteId: null,
+    paciente: null
+  });
+
   // Agrupar camas por servicio y sala
   const camasAgrupadas = React.useMemo(() => {
     const grupos: Record<string, { servicio: string; tipo: TipoServicioEnum; salas: Record<string, Cama[]> }> = {};
     
     camas.forEach(cama => {
-      // Usar servicio_nombre y servicio_tipo que vienen del backend
       const servicioNombre = cama.servicio_nombre || cama.sala?.servicio?.nombre;
       const servicioTipo = cama.servicio_tipo || cama.sala?.servicio?.tipo;
       
@@ -101,16 +130,64 @@ function App() {
     setTimeout(() => setAlertMessage(null), 5000);
   }, []);
 
-  // Handlers para acciones de cama
-  const handleVerPaciente = useCallback((paciente: Paciente) => {
-    setPacienteSeleccionado(paciente);
-    setModalActual('verPaciente');
+  //  Función segura para obtener paciente completo
+  const obtenerPacienteSeguro = useCallback(async (paciente: Paciente): Promise<Paciente | null> => {
+    try {
+      // Si el paciente ya tiene todos los datos necesarios, usarlo directamente
+      if (paciente && paciente.id && paciente.nombre && paciente.run) {
+        return paciente;
+      }
+      // Si falta información, obtenerla del servidor
+      if (paciente?.id) {
+        const pacienteCompleto = await api.getPaciente(paciente.id);
+        return pacienteCompleto;
+      }
+      return null;
+    } catch (err) {
+      console.error('Error obteniendo paciente:', err);
+      return null;
+    }
   }, []);
 
-  const handleReevaluar = useCallback((paciente: Paciente) => {
-    setPacienteSeleccionado(paciente);
-    setModalActual('reevaluar');
-  }, []);
+  //  Handler mejorado para ver paciente
+  const handleVerPaciente = useCallback(async (paciente: Paciente) => {
+    if (!paciente || !paciente.id) {
+      showAlert('error', 'No se puede mostrar el detalle: datos de paciente incompletos');
+      return;
+    }
+    
+    try {
+      // Obtener datos completos del paciente
+      const pacienteCompleto = await obtenerPacienteSeguro(paciente);
+    if (pacienteCompleto) {
+      setPacienteSeleccionado(pacienteCompleto);
+      setModalActual('verPaciente');
+    }
+  } catch (err) {
+    showAlert('error', 'Error al cargar los datos del paciente');
+  }
+}, []);
+
+
+  const handleReevaluar = useCallback(async (paciente: Paciente) => {
+    if (!paciente || !paciente.id) {
+      showAlert('error', 'No se puede reevaluar: datos de paciente incompletos');
+      return;
+    }
+    
+    try {
+      const pacienteCompleto = await obtenerPacienteSeguro(paciente);
+      if (pacienteCompleto) {
+        setPacienteSeleccionado(pacienteCompleto);
+        setModalActual('reevaluar');
+      } else {
+        showAlert('error', 'No se pudo obtener la información del paciente');
+      }
+    } catch (err) {
+      console.error('Error al abrir reevaluación:', err);
+      showAlert('error', 'Error al cargar los datos del paciente');
+    }
+  }, [obtenerPacienteSeguro, showAlert]);
 
   const handleCompletarTraslado = useCallback(async (pacienteId: string) => {
     try {
@@ -180,6 +257,21 @@ function App() {
     }
   }, [hospitalActual, cargarCamas, showAlert]);
 
+  const handleOmitirPausaOxigeno = async (pacienteId: string) => {
+  try {
+    const resultado = await api.omitirPausaOxigeno(pacienteId);
+    if (resultado.success) {
+      // Mostrar notificación de éxito
+      console.log('Pausa omitida:', resultado.message);
+      // Refrescar datos
+      await refrescarDatos();
+    }
+  } catch (error) {
+    console.error('Error al omitir pausa:', error);
+    // Mostrar error al usuario
+  }
+};
+
   const handleConfirmarEgreso = useCallback(async (pacienteId: string) => {
     if (!confirm('¿Confirma el egreso del paciente por derivación?')) return;
     try {
@@ -215,11 +307,145 @@ function App() {
       await api.actualizarConfiguracion({ modo_manual: nuevoModo });
       showAlert('success', `Modo ${nuevoModo ? 'manual' : 'automático'} activado`);
       await cargarConfiguracion();
-      if (hospitalActual) cargarCamas(hospitalActual.id);
+      if (hospitalActual) {
+        cargarCamas(hospitalActual.id);
+        cargarListaEspera(hospitalActual.id);
+      }
     } catch (err) {
       showAlert('error', err instanceof Error ? err.message : 'Error al cambiar modo');
     }
-  }, [configuracion, cargarConfiguracion, hospitalActual, cargarCamas, showAlert]);
+  }, [configuracion, cargarConfiguracion, hospitalActual, cargarCamas, cargarListaEspera, showAlert]);
+
+  // CORRECCIÓN PROBLEMA 1: Handlers para modo manual desde CamaCard
+
+  /**
+   * Abre el modal de asignación manual desde una cama ocupada
+   */
+  const handleAsignarManual = useCallback(async (pacienteId: string) => {
+    try {
+      const paciente = await api.getPaciente(pacienteId);
+      setModalAsignacion({
+        open: true,
+        pacienteId,
+        paciente,
+        fromLista: false
+      });
+    } catch (err) {
+      showAlert('error', err instanceof Error ? err.message : 'Error al cargar paciente');
+    }
+  }, [showAlert]);
+
+  /**
+   * Abre el modal de intercambio de pacientes
+   */
+  const handleIntercambiar = useCallback(async (pacienteId: string) => {
+    try {
+      const paciente = await api.getPaciente(pacienteId);
+      setModalIntercambio({
+        open: true,
+        pacienteId,
+        paciente
+      });
+    } catch (err) {
+      showAlert('error', err instanceof Error ? err.message : 'Error al cargar paciente');
+    }
+  }, [showAlert]);
+
+  /**
+   * Egresa manualmente a un paciente del sistema (con confirmación)
+   */
+  const handleEgresarManual = useCallback(async (pacienteId: string) => {
+    if (!confirm('¿Está seguro de egresar a este paciente del sistema? Esta acción no se puede deshacer.')) {
+      return;
+    }
+    try {
+      await api.egresarManual(pacienteId);
+      showAlert('success', 'Paciente egresado correctamente');
+      if (hospitalActual) {
+        cargarCamas(hospitalActual.id);
+        cargarListaEspera(hospitalActual.id);
+      }
+    } catch (err) {
+      showAlert('error', err instanceof Error ? err.message : 'Error al egresar paciente');
+    }
+  }, [hospitalActual, cargarCamas, cargarListaEspera, showAlert]);
+
+  // CORRECCIÓN PROBLEMA 1: Handlers para modo manual desde ListaEspera
+
+  /**
+   * Abre el modal de asignación manual desde la lista de espera
+   */
+  const handleAsignarManualLista = useCallback(async (pacienteId: string) => {
+    try {
+      const paciente = await api.getPaciente(pacienteId);
+      setModalAsignacion({
+        open: true,
+        pacienteId,
+        paciente,
+        fromLista: true
+      });
+    } catch (err) {
+      showAlert('error', err instanceof Error ? err.message : 'Error al cargar paciente');
+    }
+  }, [showAlert]);
+
+  /**
+   * Egresa a un paciente de la lista de espera (con confirmación)
+   */
+  const handleEgresarDeLista = useCallback(async (pacienteId: string) => {
+    if (!confirm('¿Está seguro de sacar a este paciente de la lista de espera?')) {
+      return;
+    }
+    try {
+      await api.egresarDeLista(pacienteId);
+      showAlert('success', 'Paciente removido de la lista');
+      if (hospitalActual) {
+        cargarCamas(hospitalActual.id);
+        cargarListaEspera(hospitalActual.id);
+      }
+    } catch (err) {
+      showAlert('error', err instanceof Error ? err.message : 'Error al remover paciente');
+    }
+  }, [hospitalActual, cargarCamas, cargarListaEspera, showAlert]);
+
+  // CORRECCIÓN PROBLEMA 1: Handler para asignación desde modal
+
+  /**
+   * Ejecuta la asignación manual de cama
+   */
+  const handleConfirmarAsignacion = useCallback(async (pacienteId: string, camaId: string) => {
+    try {
+      if (modalAsignacion.fromLista) {
+        await api.asignarManualDesdeLista(pacienteId, camaId);
+      } else {
+        await api.asignarManualDesdeCama(pacienteId, camaId);
+      }
+      showAlert('success', 'Cama asignada correctamente');
+      setModalAsignacion({ open: false, pacienteId: null, paciente: null, fromLista: false });
+      if (hospitalActual) {
+        cargarCamas(hospitalActual.id);
+        cargarListaEspera(hospitalActual.id);
+      }
+    } catch (err) {
+      throw err; // Propagar para que el modal muestre el error
+    }
+  }, [modalAsignacion.fromLista, hospitalActual, cargarCamas, cargarListaEspera, showAlert]);
+
+  /**
+   * Ejecuta el intercambio de pacientes
+   */
+  const handleConfirmarIntercambio = useCallback(async (pacienteAId: string, pacienteBId: string) => {
+    try {
+      await api.intercambiarPacientes(pacienteAId, pacienteBId);
+      showAlert('success', 'Pacientes intercambiados correctamente');
+      setModalIntercambio({ open: false, pacienteId: null, paciente: null });
+      if (hospitalActual) {
+        cargarCamas(hospitalActual.id);
+      }
+    } catch (err) {
+      throw err; // Propagar para que el modal muestre el error
+    }
+  }, [hospitalActual, cargarCamas, showAlert]);
 
   const handleFormSubmit = useCallback(async () => {
     setModalActual(null);
@@ -272,7 +498,7 @@ function App() {
           ))}
         </select>
         <button
-          className={`btn btn-secondary ${configuracion?.modo_manual ? 'active' : ''}`}
+          className={`btn btn-secondary ${configuracion?.modo_manual ? 'active modo-manual-btn' : ''}`}
           onClick={handleToggleModoManual}
           title={configuracion?.modo_manual ? 'Modo manual activo' : 'Modo automático activo'}
         >
@@ -351,6 +577,9 @@ function App() {
       <div className="dashboard">
         <div className="dashboard-header">
           <h2>{hospitalActual.nombre}</h2>
+          {configuracion?.modo_manual && (
+            <span className="modo-manual-badge">MODO MANUAL ACTIVO</span>
+          )}
           <div className="filtro-servicio">
             <label>Filtrar por servicio:</label>
             <select
@@ -397,6 +626,10 @@ function App() {
                           onCancelarAlta={handleCancelarAlta}
                           onConfirmarEgreso={handleConfirmarEgreso}
                           onBloquear={handleBloquear}
+                          onAsignarManual={handleAsignarManual}
+                          onIntercambiar={handleIntercambiar}
+                          onEgresarManual={handleEgresarManual}
+                          onOmitirPausaOxigeno={handleOmitirPausaOxigeno}
                         />
                       ))}
                     </div>
@@ -420,6 +653,7 @@ function App() {
           <ListaEspera
             items={listaEspera}
             hospitalActual={hospitalActual}
+            modoManual={configuracion?.modo_manual || false}
             onVerPaciente={handleVerPaciente}
             onCancelarBusqueda={async (pacienteId) => {
               if (!confirm('¿Cancelar la búsqueda de cama para este paciente?')) return;
@@ -435,6 +669,8 @@ function App() {
               }
             }}
             onRefresh={() => hospitalActual && cargarListaEspera(hospitalActual.id)}
+            onAsignarManual={handleAsignarManualLista}
+            onEgresarDeLista={handleEgresarDeLista}
           />
         );
       case 'derivados':
@@ -531,21 +767,45 @@ function App() {
         )}
       </Modal>
 
-      {/* Modal para ver paciente */}
+      {/* CORRECCIÓN PROBLEMA 2: Modal para ver paciente con manejo de errores */}
       <Modal
         isOpen={modalActual === 'verPaciente'}
         onClose={() => { setModalActual(null); setPacienteSeleccionado(null); }}
         title="Detalle del Paciente"
         size="medium"
       >
-        {pacienteSeleccionado && (
+        {pacienteSeleccionado ? (
           <PacienteDetalle
             paciente={pacienteSeleccionado}
             onReevaluar={() => setModalActual('reevaluar')}
             onClose={() => { setModalActual(null); setPacienteSeleccionado(null); }}
           />
+        ) : (
+          <div className="loading">
+            <RefreshCw className="spin" size={24} />
+            <p>Cargando datos del paciente...</p>
+          </div>
         )}
       </Modal>
+
+      {/* CORRECCIÓN PROBLEMA 1: Modal de asignación manual */}
+      <ModalAsignacionManual
+        isOpen={modalAsignacion.open}
+        paciente={modalAsignacion.paciente}
+        hospitalId={hospitalActual?.id || ''}
+        onClose={() => setModalAsignacion({ open: false, pacienteId: null, paciente: null, fromLista: false })}
+        onAsignar={handleConfirmarAsignacion}
+        titulo={modalAsignacion.fromLista ? "Asignar Cama desde Lista de Espera" : "Asignar Nueva Cama"}
+      />
+
+      {/* CORRECCIÓN PROBLEMA 1: Modal de intercambio */}
+      <ModalIntercambio
+        isOpen={modalIntercambio.open}
+        pacienteOrigen={modalIntercambio.paciente}
+        hospitalId={hospitalActual?.id || ''}
+        onClose={() => setModalIntercambio({ open: false, pacienteId: null, paciente: null })}
+        onIntercambiar={handleConfirmarIntercambio}
+      />
     </div>
   );
 }

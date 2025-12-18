@@ -1,6 +1,10 @@
 """
 Sistema de Cola de Prioridad para Gestión de Camas Hospitalarias.
 Implementa una cola de prioridad global por hospital usando max-heap.
+
+MODIFICACIÓN: Se agregó lógica de priorización por transición de servicios.
+- Para camas UTI: pacientes de UCI tienen prioridad sobre otros servicios
+- Para camas UCI: pacientes de otros servicios tienen prioridad sobre UTI
 """
 
 from dataclasses import dataclass, field
@@ -11,7 +15,7 @@ import heapq
 if TYPE_CHECKING:
     from models import Paciente
 
-from models import TipoPacienteEnum, ComplejidadEnum, EdadCategoriaEnum, TipoAislamientoEnum
+from models import TipoPacienteEnum, ComplejidadEnum, EdadCategoriaEnum, TipoAislamientoEnum, TipoServicioEnum
 
 
 # ============================================
@@ -45,6 +49,21 @@ BOOST_AISLAMIENTO_INDIVIDUAL = 3
 BOOST_DERIVADO_CON_OCUPACION = 4
 BOOST_ADULTO_ESPERA_LARGA = 5
 
+# ============================================
+# NUEVAS CONSTANTES: PRIORIDAD POR TRANSICIÓN DE SERVICIO
+# ============================================
+
+# Boost para pacientes de UCI que necesitan bajar a UTI
+# (desescalamiento de cuidados críticos - alta prioridad)
+BOOST_UCI_A_UTI = 15
+
+# Penalización para pacientes de UTI que necesitan subir a UCI
+# (se priorizan otros servicios que necesitan UCI urgentemente)
+PENALIZACION_UTI_A_UCI = -10
+
+# Servicios considerados "críticos" vs "otros"
+SERVICIOS_CRITICOS = {TipoServicioEnum.UCI, TipoServicioEnum.UTI}
+
 
 # ============================================
 # DATACLASS PARA ENTRADA EN COLA
@@ -64,10 +83,59 @@ class EntradaCola:
 # FUNCIONES DE CÁLCULO DE PRIORIDAD
 # ============================================
 
-def calcular_prioridad_paciente(paciente: "Paciente") -> float:
+def calcular_boost_transicion_servicio(
+    complejidad_destino: ComplejidadEnum,
+    servicio_origen: Optional[TipoServicioEnum]
+) -> tuple[float, str]:
+    """
+    Calcula el boost o penalización basado en la transición de servicios.
+    
+    REGLAS:
+    1. Si necesita cama UTI (complejidad MEDIA):
+       - Pacientes de UCI: +15 puntos (prioridad alta - desescalamiento)
+       - Pacientes de otros servicios: 0 (prioridad normal)
+    
+    2. Si necesita cama UCI (complejidad ALTA):
+       - Pacientes de UTI: -10 puntos (penalización - UTI es paso intermedio)
+       - Pacientes de otros servicios: 0 (prioridad normal)
+    
+    Args:
+        complejidad_destino: La complejidad requerida del paciente (determina tipo de cama destino)
+        servicio_origen: El tipo de servicio donde está actualmente el paciente (puede ser None)
+    
+    Returns:
+        tuple(boost: float, razon: str): El boost/penalización y la razón
+    """
+    if servicio_origen is None:
+        return 0.0, ""
+    
+    # CASO 1: Paciente necesita cama UTI (complejidad MEDIA)
+    if complejidad_destino == ComplejidadEnum.MEDIA:
+        if servicio_origen == TipoServicioEnum.UCI:
+            return BOOST_UCI_A_UTI, "Desescalamiento UCI→UTI (prioridad alta)"
+    
+    # CASO 2: Paciente necesita cama UCI (complejidad ALTA)
+    if complejidad_destino == ComplejidadEnum.ALTA:
+        if servicio_origen == TipoServicioEnum.UTI:
+            return PENALIZACION_UTI_A_UCI, "Escalamiento UTI→UCI (otros servicios tienen prioridad)"
+    
+    return 0.0, ""
+
+
+def calcular_prioridad_paciente(
+    paciente: "Paciente",
+    servicio_origen: Optional[TipoServicioEnum] = None
+) -> float:
     """
     Calcula la prioridad de un paciente.
     Mayor valor = Mayor prioridad.
+    
+    MODIFICACIÓN: Ahora acepta opcionalmente el tipo de servicio de origen
+    para aplicar la lógica de priorización por transición de servicios.
+    
+    Args:
+        paciente: El paciente a evaluar
+        servicio_origen: Tipo de servicio donde está actualmente (opcional)
     """
     tipo_paciente = paciente.tipo_paciente
     if tipo_paciente is None:
@@ -114,13 +182,27 @@ def calcular_prioridad_paciente(paciente: "Paciente") -> float:
     if tiempo_espera_horas > 8 and paciente.edad_categoria == EdadCategoriaEnum.ADULTO:
         boosts += BOOST_ADULTO_ESPERA_LARGA
     
+    # ========== NUEVO: Boost por transición de servicio ==========
+    # Solo aplica a pacientes hospitalizados que requieren nueva cama
+    boost_transicion = 0.0
+    if paciente.cama_id and servicio_origen:
+        boost_transicion, _ = calcular_boost_transicion_servicio(complejidad, servicio_origen)
+        boosts += boost_transicion
+    
     prioridad = (score_tipo * 10) + (score_complejidad * 3) + (score_tiempo * 2) + boosts
     
     return round(prioridad, 2)
 
 
-def explicar_prioridad(paciente: "Paciente") -> Dict:
-    """Retorna un desglose detallado del cálculo de prioridad."""
+def explicar_prioridad(
+    paciente: "Paciente",
+    servicio_origen: Optional[TipoServicioEnum] = None
+) -> Dict:
+    """
+    Retorna un desglose detallado del cálculo de prioridad.
+    
+    MODIFICACIÓN: Ahora incluye información sobre boost de transición de servicio.
+    """
     tipo_paciente = paciente.tipo_paciente or TipoPacienteEnum.URGENCIA
     score_tipo = SCORES_TIPO_PACIENTE.get(tipo_paciente, 5)
     
@@ -160,9 +242,23 @@ def explicar_prioridad(paciente: "Paciente") -> Dict:
         boosts_detalle.append({"razon": "Adulto con espera larga (>8h)", "valor": BOOST_ADULTO_ESPERA_LARGA})
         boosts_total += BOOST_ADULTO_ESPERA_LARGA
     
+    # ========== NUEVO: Boost por transición de servicio ==========
+    boost_transicion = 0.0
+    razon_transicion = ""
+    if paciente.cama_id and servicio_origen:
+        boost_transicion, razon_transicion = calcular_boost_transicion_servicio(complejidad, servicio_origen)
+        if boost_transicion != 0:
+            boosts_detalle.append({
+                "razon": razon_transicion,
+                "valor": boost_transicion,
+                "servicio_origen": servicio_origen.value if servicio_origen else None,
+                "complejidad_destino": complejidad.value
+            })
+            boosts_total += boost_transicion
+    
     prioridad_final = (score_tipo * 10) + (score_complejidad * 3) + (score_tiempo * 2) + boosts_total
     
-    return {
+    resultado = {
         "paciente_id": paciente.id,
         "nombre": paciente.nombre,
         "tipo_paciente": tipo_paciente.value,
@@ -176,6 +272,17 @@ def explicar_prioridad(paciente: "Paciente") -> Dict:
         "umbral_espera_horas": umbral,
         "excede_umbral": tiempo_espera_horas > umbral
     }
+    
+    # Agregar información de transición si aplica
+    if servicio_origen:
+        resultado["transicion_servicio"] = {
+            "servicio_origen": servicio_origen.value,
+            "complejidad_destino": complejidad.value,
+            "boost_aplicado": boost_transicion,
+            "razon": razon_transicion
+        }
+    
+    return resultado
 
 
 # ============================================
@@ -191,14 +298,23 @@ class GestorColaPrioridad:
         self._pacientes_en_cola: Set[str] = set()
         self._contador = 0
     
-    def agregar_paciente(self, paciente: "Paciente", session=None) -> float:
-        """Agrega un paciente a la cola de prioridad."""
+    def agregar_paciente(
+        self,
+        paciente: "Paciente",
+        session=None,
+        servicio_origen: Optional[TipoServicioEnum] = None
+    ) -> float:
+        """
+        Agrega un paciente a la cola de prioridad.
+        
+        MODIFICACIÓN: Ahora acepta servicio_origen para calcular prioridad con transición.
+        """
         # CORRECCIÓN PROBLEMA 4: Verificar si ya está en cola para evitar duplicados
         if paciente.id in self._pacientes_en_cola:
             # Ya existe, solo actualizar prioridad
-            return self.actualizar_prioridad(paciente, session)
+            return self.actualizar_prioridad(paciente, session, servicio_origen)
         
-        prioridad = calcular_prioridad_paciente(paciente)
+        prioridad = calcular_prioridad_paciente(paciente, servicio_origen)
         
         entrada = EntradaCola(
             prioridad_negativa=-prioridad,
@@ -215,17 +331,24 @@ class GestorColaPrioridad:
         if session:
             paciente.en_lista_espera = True
             paciente.prioridad_calculada = prioridad
-            if not paciente.timestamp_lista_espera:
-                paciente.timestamp_lista_espera = datetime.utcnow()
+            paciente.timestamp_lista_espera = datetime.utcnow()
             session.add(paciente)
         
         return prioridad
     
-    def actualizar_prioridad(self, paciente: "Paciente", session=None) -> float:
-        """Actualiza la prioridad de un paciente en la cola."""
-        prioridad = calcular_prioridad_paciente(paciente)
+    def actualizar_prioridad(
+        self,
+        paciente: "Paciente",
+        session=None,
+        servicio_origen: Optional[TipoServicioEnum] = None
+    ) -> float:
+        """
+        Actualiza la prioridad de un paciente en la cola.
         
-        # Agregar nueva entrada con prioridad actualizada
+        MODIFICACIÓN: Ahora acepta servicio_origen para calcular prioridad con transición.
+        """
+        prioridad = calcular_prioridad_paciente(paciente, servicio_origen)
+        
         entrada = EntradaCola(
             prioridad_negativa=-prioridad,
             timestamp=datetime.utcnow(),
@@ -290,6 +413,10 @@ class GestorColaPrioridad:
         """
         Retorna la lista de pacientes ordenados por prioridad.
         CORRECCIÓN PROBLEMA 4: Deduplicar pacientes - solo mostrar la entrada más prioritaria
+        
+        NOTA: Esta función no recalcula prioridades con servicio_origen.
+        Para obtener prioridades actualizadas con transición de servicio,
+        use obtener_lista_ordenada_con_transicion().
         """
         # Filtrar solo entradas de pacientes que siguen en la cola
         entradas_validas = [e for e in self._heap if e.paciente_id in self._pacientes_en_cola]
@@ -342,6 +469,72 @@ class GestorColaPrioridad:
             resultado.append(info)
         
         return resultado
+    
+    def obtener_lista_ordenada_con_transicion(self, session) -> List[Dict]:
+        """
+        Retorna la lista de pacientes ordenados por prioridad,
+        recalculando las prioridades con la lógica de transición de servicios.
+        
+        Esta función es más costosa pero proporciona prioridades actualizadas
+        considerando el servicio de origen de cada paciente hospitalizado.
+        """
+        from sqlmodel import select
+        from models import Paciente, Cama, Sala, Servicio
+        
+        # Obtener todos los pacientes en cola
+        pacientes_ids = list(self._pacientes_en_cola)
+        if not pacientes_ids:
+            return []
+        
+        # Calcular prioridades con transición de servicio
+        pacientes_con_prioridad = []
+        
+        for pid in pacientes_ids:
+            paciente = session.get(Paciente, pid)
+            if not paciente:
+                continue
+            
+            # Obtener servicio de origen si tiene cama
+            servicio_origen = None
+            if paciente.cama_id:
+                cama = session.get(Cama, paciente.cama_id)
+                if cama:
+                    sala = session.get(Sala, cama.sala_id)
+                    if sala:
+                        servicio = session.get(Servicio, sala.servicio_id)
+                        if servicio:
+                            servicio_origen = servicio.tipo
+            
+            # Calcular prioridad con transición
+            prioridad = calcular_prioridad_paciente(paciente, servicio_origen)
+            
+            pacientes_con_prioridad.append({
+                "paciente_id": paciente.id,
+                "prioridad": prioridad,
+                "timestamp": paciente.timestamp_lista_espera or datetime.utcnow(),
+                "nombre": paciente.nombre,
+                "run": paciente.run,
+                "tipo_paciente": paciente.tipo_paciente.value if paciente.tipo_paciente else "desconocido",
+                "complejidad": paciente.complejidad_requerida.value,
+                "tiempo_espera_min": paciente.tiempo_espera_min,
+                "tiene_cama_actual": paciente.cama_id is not None,
+                "cama_actual_id": paciente.cama_id,
+                "estado_lista": paciente.estado_lista_espera.value if paciente.estado_lista_espera else "esperando",
+                "sexo": paciente.sexo.value,
+                "edad": paciente.edad,
+                "tipo_enfermedad": paciente.tipo_enfermedad.value,
+                "tipo_aislamiento": paciente.tipo_aislamiento.value,
+                "servicio_origen": servicio_origen.value if servicio_origen else None
+            })
+        
+        # Ordenar por prioridad (mayor primero), luego por timestamp (más antiguo primero)
+        pacientes_con_prioridad.sort(key=lambda x: (-x["prioridad"], x["timestamp"]))
+        
+        # Agregar posición
+        for i, p in enumerate(pacientes_con_prioridad):
+            p["posicion"] = i + 1
+        
+        return pacientes_con_prioridad
     
     def limpiar_cola(self):
         """Limpia completamente la cola."""
@@ -396,9 +589,20 @@ class GestorColasGlobal:
             self._colas[hospital_id] = GestorColaPrioridad(hospital_id)
         return self._colas[hospital_id]
     
-    def agregar_paciente(self, paciente: "Paciente", hospital_id: str, session=None) -> float:
+    def agregar_paciente(
+        self,
+        paciente: "Paciente",
+        hospital_id: str,
+        session=None,
+        servicio_origen: Optional[TipoServicioEnum] = None
+    ) -> float:
+        """
+        Agrega un paciente a la cola de prioridad del hospital.
+        
+        MODIFICACIÓN: Ahora acepta servicio_origen para calcular prioridad con transición.
+        """
         cola = self.obtener_cola(hospital_id)
-        return cola.agregar_paciente(paciente, session)
+        return cola.agregar_paciente(paciente, session, servicio_origen)
     
     def remover_paciente(self, paciente_id: str, hospital_id: str, session=None, paciente=None) -> bool:
         cola = self.obtener_cola(hospital_id)
@@ -409,9 +613,13 @@ class GestorColasGlobal:
         return self.remover_paciente(paciente_id, hospital_id, session, paciente)
     
     def sincronizar_cola_con_db(self, hospital_id: str, session) -> int:
-        """Sincroniza la cola con el estado actual de la base de datos."""
+        """
+        Sincroniza la cola con el estado actual de la base de datos.
+        
+        MODIFICACIÓN: Ahora calcula prioridades con servicio de origen.
+        """
         from sqlmodel import select
-        from models import Paciente
+        from models import Paciente, Cama, Sala, Servicio
         
         cola = self.obtener_cola(hospital_id)
         cola.limpiar_cola()
@@ -429,7 +637,18 @@ class GestorColasGlobal:
             )
             
             if necesita_cola:
-                cola.agregar_paciente(paciente, session)
+                # Obtener servicio de origen si tiene cama
+                servicio_origen = None
+                if paciente.cama_id:
+                    cama = session.get(Cama, paciente.cama_id)
+                    if cama:
+                        sala = session.get(Sala, cama.sala_id)
+                        if sala:
+                            servicio = session.get(Servicio, sala.servicio_id)
+                            if servicio:
+                                servicio_origen = servicio.tipo
+                
+                cola.agregar_paciente(paciente, session, servicio_origen)
         
         session.commit()
         return len(cola)

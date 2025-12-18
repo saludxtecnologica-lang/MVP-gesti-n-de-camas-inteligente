@@ -213,7 +213,13 @@ class PacienteListaEsperaResponse(BaseModel):
     tiene_cama_actual: bool
     cama_actual_id: Optional[str]
     timestamp: str
-
+    # CAMPOS para filtros de origen y destino
+    origen_tipo: Optional[str] = None  # "derivado", "hospitalizado", "urgencia", "ambulatorio"
+    origen_hospital_nombre: Optional[str] = None  # Para derivados
+    origen_hospital_codigo: Optional[str] = None  # Para derivados
+    origen_servicio_nombre: Optional[str] = None  # Para hospitalizados y derivados
+    origen_cama_identificador: Optional[str] = None  # Para hospitalizados y derivados
+    servicio_destino: Optional[str] = None  # UCI, UTI, Medicina, etc.
 
 class ListaEsperaResponse(BaseModel):
     hospital_id: str

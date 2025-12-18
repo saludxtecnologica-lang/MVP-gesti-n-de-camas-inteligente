@@ -1444,6 +1444,99 @@ a:hover {
   border-top: 1px solid var(--color-gray-200);
 }
 
+
+/* ============================================
+   CASOS ESPECIALES - ICONOS
+   ============================================ */
+
+.cama-card-paciente {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cama-card-paciente .paciente-nombre {
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.cama-card-paciente .paciente-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.casos-especiales-icons {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.caso-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: help;
+  transition: transform 0.2s ease;
+}
+
+.caso-icon:hover {
+  transform: scale(1.15);
+}
+
+/* Cardiocirugía - Corazón rojo */
+.caso-cardiocirugia {
+  background-color: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.caso-cardiocirugia:hover {
+  background-color: #fecaca;
+}
+
+/* Socio-Judicial - Martillo azul */
+.caso-judicial {
+  background-color: #dbeafe;
+  color: #2563eb;
+  border: 1px solid #93c5fd;
+}
+
+.caso-judicial:hover {
+  background-color: #bfdbfe;
+}
+
+/* Socio-Sanitario - Papeles amarillo/naranja */
+.caso-sanitario {
+  background-color: #fef3c7;
+  color: #d97706;
+  border: 1px solid #fcd34d;
+}
+
+.caso-sanitario:hover {
+  background-color: #fde68a;
+}
+
+/* Leyenda opcional para mostrar en algún lugar de la UI */
+.leyenda-casos-especiales {
+  display: flex;
+  gap: 16px;
+  padding: 8px 12px;
+  background-color: #f8fafc;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.leyenda-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ==================== LISTA ESPERA ==================== */
 .lista-espera-container,
 .lista-derivados-container {
@@ -1978,4 +2071,997 @@ a:hover {
   .hospitales-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Indicador de modo manual en las tarjetas de cama */
+.cama-card.modo-manual {
+  border: 2px solid #f59e0b;
+  position: relative;
+}
+
+.cama-card .modo-manual-indicator {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  background: #f59e0b;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transform: rotate(12deg);
+}
+
+/* Estilos para botones de modo manual */
+.cama-card.modo-manual .cama-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+.cama-card.modo-manual .btn {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+/* Botón de intercambio */
+.btn-warning {
+  background-color: #f59e0b;
+  border-color: #d97706;
+  color: white;
+}
+
+.btn-warning:hover {
+  background-color: #d97706;
+  border-color: #b45309;
+}
+
+/* Lista de espera en modo manual */
+.lista-espera-container.modo-manual {
+  border: 2px solid #f59e0b;
+  border-radius: 8px;
+}
+
+.lista-espera-container.modo-manual .lista-header {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+}
+
+.lista-info-manual {
+  color: #92400e;
+  font-weight: 500;
+}
+
+/* Indicador de paciente con cama actual */
+.lista-tabla tr.tiene-cama {
+  background-color: #f0f9ff;
+}
+
+.lista-tabla tr.tiene-cama td:first-child::before {
+  content: "🏥";
+  margin-right: 4px;
+}
+
+/* Animación para evaluación de oxígeno */
+.estado-icono .spin {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Badge de modo manual en header */
+.badge-warning {
+  background-color: #f59e0b;
+  color: white;
+}
+
+/* Estilos para camas en estados especiales durante modo manual */
+.cama-card-traslado_saliente.modo-manual {
+  background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%);
+}
+
+.cama-card-cama_en_espera.modo-manual {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+}
+
+/* Modal de confirmación para acciones manuales */
+.modal-confirmacion {
+  text-align: center;
+}
+
+.modal-confirmacion .warning-icon {
+  color: #f59e0b;
+  margin-bottom: 16px;
+}
+
+.modal-confirmacion .btn-group {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+/* Selector de cama para asignación manual */
+.selector-cama-manual {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.selector-cama-manual .cama-opcion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.selector-cama-manual .cama-opcion:hover {
+  background-color: #f3f4f6;
+  border-color: #3b82f6;
+}
+
+.selector-cama-manual .cama-opcion.seleccionada {
+  background-color: #dbeafe;
+  border-color: #3b82f6;
+}
+
+.selector-cama-manual .cama-opcion .cama-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.selector-cama-manual .cama-opcion .cama-id {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.selector-cama-manual .cama-opcion .cama-servicio {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Selector de paciente para intercambio */
+.selector-paciente-intercambio {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.selector-paciente-intercambio .paciente-opcion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.selector-paciente-intercambio .paciente-opcion:hover {
+  background-color: #f3f4f6;
+  border-color: #8b5cf6;
+}
+
+.selector-paciente-intercambio .paciente-opcion.seleccionado {
+  background-color: #ede9fe;
+  border-color: #8b5cf6;
+}
+
+/* Toast de notificación para cambios de oxígeno (Problema 5) */
+.toast-oxigeno {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-left: 4px solid #f59e0b;
+}
+
+.toast-oxigeno .toast-icon {
+  color: #f59e0b;
+}
+
+/* Indicador de tiempo restante para evaluación de oxígeno */
+.tiempo-oxigeno-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background-color: #fef3c7;
+  border-radius: 12px;
+  font-size: 11px;
+  color: #92400e;
+}
+
+.tiempo-oxigeno-indicator svg {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.paciente-origen {
+  border-left: 4px solid #3b82f6;
+}
+
+.intercambio-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  margin: 16px 0;
+  color: #64748b;
+  gap: 8px;
+}
+
+.intercambio-indicator svg {
+  color: #8b5cf6;
+}
+
+.paciente-opcion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.paciente-opcion:hover {
+  background-color: #f3f4f6;
+  border-color: #8b5cf6;
+}
+
+.paciente-opcion.seleccionado {
+  background-color: #ede9fe;
+  border-color: #8b5cf6;
+}
+
+.paciente-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.paciente-nombre-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.paciente-nombre {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.paciente-run {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.paciente-cama-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cama-badge {
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.servicio-badge {
+  background: #f3f4f6;
+  color: #374151;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.resumen-intercambio {
+  background: #faf5ff;
+  border: 1px solid #e9d5ff;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.resumen-intercambio h4 {
+  margin: 0 0 12px 0;
+  color: #7c3aed;
+  font-size: 14px;
+}
+
+.resumen-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.resumen-paciente {
+  font-weight: 600;
+  color: #1e293b;
+  padding: 8px 16px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+
+.paciente-info-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.paciente-info-box h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.paciente-info-box .info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.paciente-info-box .info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.paciente-info-box .label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.paciente-info-box .value {
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.warning-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #fef3c7;
+  border-radius: 6px;
+  color: #92400e;
+  font-size: 13px;
+}
+
+.error-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #dc2626;
+}
+
+.filtro-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filtro-container label {
+  font-weight: 500;
+  color: #374151;
+}
+
+.select-filtro {
+  flex: 1;
+  max-width: 300px;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.check-icon {
+  color: #22c55e;
+}
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  gap: 16px;
+  color: #64748b;
+}
+
+.spinner-sm {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #ffffff;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Contenedor base del modal (para modales personalizados) */
+.modal-container {
+  background-color: white;
+  border-radius: var(--radius-xl, 0.75rem);
+  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1));
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Modal grande - versión para modal-container */
+.modal-container.modal-lg {
+  max-width: 900px;
+  width: 95%;
+}
+
+/* Modal grande - versión para modal base (mantener consistencia) */
+.modal.modal-lg {
+  max-width: 900px;
+  width: 95%;
+}
+
+/* Header del modal-container */
+.modal-container .modal-header {
+  padding: var(--spacing-4, 1rem) var(--spacing-5, 1.25rem);
+  border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  background-color: white;
+}
+
+.modal-container .modal-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--font-size-lg, 1.125rem);
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-gray-900, #111827);
+}
+
+/* Botón de cerrar del modal-container */
+.modal-container .btn-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--spacing-2, 0.5rem);
+  color: var(--color-gray-500, #6b7280);
+  border-radius: var(--radius-md, 0.375rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast, 150ms ease);
+}
+
+.modal-container .btn-close:hover {
+  background-color: var(--color-gray-100, #f3f4f6);
+  color: var(--color-gray-700, #374151);
+}
+
+/* Body del modal-container - CRÍTICO para el scroll */
+.modal-container .modal-body {
+  padding: var(--spacing-5, 1.25rem);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0; /* Importante para que flex funcione correctamente */
+}
+
+/* Footer del modal-container */
+.modal-container .modal-footer {
+  padding: var(--spacing-4, 1rem) var(--spacing-5, 1.25rem);
+  border-top: 1px solid var(--color-gray-200, #e5e7eb);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-3, 0.75rem);
+  background-color: var(--color-gray-50, #f9fafb);
+  flex-shrink: 0;
+}
+
+/* ============================================
+   Mejoras adicionales para el selector de camas
+   ============================================ */
+
+/* Asegurar que el selector de camas tenga límites correctos */
+.modal-container .selector-cama-manual {
+  max-height: 350px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 8px;
+}
+
+/* Asegurar que el selector de pacientes tenga límites correctos */
+.modal-container .selector-paciente-intercambio {
+  max-height: 350px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 8px;
+}
+
+/* Indicador de intercambio centrado */
+.intercambio-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 8px;
+  color: #0369a1;
+}
+
+.intercambio-indicator svg {
+  opacity: 0.7;
+}
+
+.intercambio-indicator span {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Resumen del intercambio */
+.resumen-intercambio {
+  margin-top: 16px;
+  padding: 16px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+}
+
+.resumen-intercambio h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #166534;
+}
+
+.resumen-intercambio .resumen-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-weight: 500;
+}
+
+.resumen-intercambio .resumen-paciente {
+  padding: 8px 16px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+}
+
+/* Paciente info box para modal de origen */
+.paciente-info-box.paciente-origen {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid #93c5fd;
+}
+
+.paciente-info-box.paciente-origen h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1e40af;
+}
+
+/* ============================================
+   Responsive para modales
+   ============================================ */
+@media (max-width: 768px) {
+  .modal-container {
+    max-width: 100%;
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    margin: 0;
+  }
+  
+  .modal-container.modal-lg {
+    max-width: 100%;
+    width: 100%;
+  }
+  
+  .modal-container .modal-body {
+    padding: var(--spacing-4, 1rem);
+  }
+  
+  .modal-container .selector-cama-manual,
+  .modal-container .selector-paciente-intercambio {
+    max-height: 300px;
+  }
+  
+  .paciente-info-box .info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================
+   ESTILOS PARA CAMA EN EVALUACIÓN DE DESESCALAJE DE OXÍGENO
+   COLOR VERDE (como ocupada) con animación de pausa
+   ============================================ */
+
+/* Estilos específicos para cama en evaluación de desescalaje de oxígeno */
+.cama-card.evaluando-oxigeno {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  border: 2px solid #22c55e;
+  position: relative;
+}
+
+.cama-card.evaluando-oxigeno::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #22c55e, #86efac, #22c55e);
+  background-size: 200% 100%;
+  animation: progress-bar 2s linear infinite;
+}
+
+@keyframes progress-bar {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+/* Ícono de evaluación de oxígeno animado */
+.evaluando-oxigeno-icono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  color: #16a34a;
+}
+
+.evaluando-oxigeno-icono .spin {
+  animation: spin 2s linear infinite;
+}
+
+/* Estado de texto específico para evaluación de oxígeno */
+.cama-card.evaluando-oxigeno .cama-card-estado {
+  color: #166534;
+  font-weight: 500;
+  background-color: rgba(220, 252, 231, 0.5);
+  padding: 8px;
+  border-radius: 6px;
+  margin: 4px 0;
+}
+
+/* Badge de notificación para cambio de oxígeno */
+.badge-oxigeno {
+  background-color: #dcfce7;
+  color: #166534;
+  border: 1px solid #22c55e;
+}
+
+/* Tooltip informativo durante evaluación */
+.cama-card.evaluando-oxigeno[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  background: #1f2937;
+  color: white;
+  font-size: 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+  z-index: 100;
+}
+
+.cama-card.evaluando-oxigeno:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Indicador de tiempo restante en la tarjeta de cama */
+.tiempo-restante-oxigeno {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: rgba(34, 197, 94, 0.2);
+  border-radius: 12px;
+  font-size: 11px;
+  color: #166534;
+}
+
+.tiempo-restante-oxigeno svg {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+/* Animación de pulsación para el estado */
+@keyframes oxigeno-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+  }
+}
+
+.cama-card.evaluando-oxigeno {
+  animation: oxigeno-pulse 2s ease-in-out infinite;
+}
+
+/* Variante para modo manual */
+.cama-card.evaluando-oxigeno.modo-manual {
+  background: linear-gradient(135deg, #dcfce7 0%, #a7f3d0 100%);
+  border-color: #16a34a;
+}
+
+/* Estilos para el mensaje de estado en evaluación */
+.estado-evaluando-oxigeno {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(34, 197, 94, 0.15);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #166534;
+  font-weight: 500;
+}
+
+/* Desactivar botón buscar cama visualmente si hay evaluación en progreso */
+.cama-card.evaluando-oxigeno .btn-buscar-cama {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+/* Indicador visual claro de que el botón aparecerá después */
+.cama-card.evaluando-oxigeno .cama-card-actions::after {
+  content: 'Evaluación en curso - espere para continuar';
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #166534;
+  font-style: italic;
+}
+
+/* Notificación toast para evaluación completada */
+.toast-evaluacion-oxigeno {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  border-left: 4px solid #22c55e;
+}
+
+.toast-evaluacion-oxigeno .toast-icon {
+  color: #22c55e;
+}
+
+/* Botón omitir pausa oxígeno */
+.cama-card.evaluando-oxigeno .btn-warning {
+  animation: pulse-warning 2s infinite;
+}
+
+@keyframes pulse-warning {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(255, 193, 7, 0);
+  }
+}
+
+/* Icono de reloj girando */
+.evaluando-oxigeno-icono .spin {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   FILTROS DE LISTA DE ESPERA
+   ============================================ */
+
+.lista-filtros {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  background: var(--surface-color);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.filtro-grupo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filtro-grupo label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.filtro-select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-color);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-width: 200px;
+  transition: all 0.2s;
+}
+
+.filtro-select:hover {
+  border-color: var(--primary-color);
+}
+
+.filtro-select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* ============================================
+   COLUMNAS DE ORIGEN Y DESTINO
+   ============================================ */
+
+.origen-cell,
+.destino-cell {
+  min-width: 180px;
+}
+
+.origen-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.origen-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.origen-valor {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.origen-valor.urgencia {
+  color: var(--danger-color);
+}
+
+.origen-valor.ambulatorio {
+  color: var(--warning-color);
+}
+
+.origen-detalle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.origen-desconocido {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.servicio-destino {
+  display: inline-block;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ============================================
+   AJUSTES RESPONSIVOS PARA FILTROS
+   ============================================ */
+
+@media (max-width: 768px) {
+  .lista-filtros {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filtro-grupo {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filtro-select {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .origen-cell,
+  .destino-cell {
+    min-width: 120px;
+  }
+}
+
+/* ============================================
+   MEJORAS VISUALES PARA LA TABLA
+   ============================================ */
+
+.lista-tabla table th:nth-child(4),
+.lista-tabla table th:nth-child(5) {
+  background: linear-gradient(135deg, var(--surface-color) 0%, rgba(37, 99, 235, 0.05) 100%);
+}
+
+.lista-tabla table tbody tr:hover .origen-info,
+.lista-tabla table tbody tr:hover .servicio-destino {
+  transform: scale(1.02);
+  transition: transform 0.2s;
 }

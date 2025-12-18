@@ -6,6 +6,10 @@ SECCIÓN CORREGIDA: Funciones de Cancelación (líneas 580-750 aprox)
 - Unificación de lógica
 - Corrección de bugs
 - Eliminación de duplicación
+
+MODIFICACIÓN: Priorización por transición de servicios
+- Para camas UTI: pacientes de UCI tienen prioridad
+- Para camas UCI: pacientes de otros servicios tienen prioridad sobre UTI
 """
 
 from typing import Optional, List, Dict, Tuple
@@ -26,6 +30,7 @@ from cola_prioridad import gestor_colas_global, calcular_prioridad_paciente
 # CONSTANTES DE REQUERIMIENTOS DE OXÍGENO
 # ============================================
 
+# Lista completa de todos los requerimientos de oxígeno
 REQUERIMIENTOS_OXIGENO = [
     "oxigeno_naricera",
     "o2_naricera",
@@ -36,6 +41,27 @@ REQUERIMIENTOS_OXIGENO = [
     "cnaf",
     "vmni",
     "vmi"
+]
+
+# Oxígeno UCI - máxima complejidad
+OXIGENO_UCI = [
+    "vmi"
+]
+
+# Oxígeno UTI - alta complejidad (sin UCI)
+OXIGENO_UTI = [
+    "oxigeno_mascarilla_reservorio",
+    "o2_reservorio",
+    "cnaf",
+    "vmni"
+]
+
+# Oxígeno baja complejidad
+OXIGENO_BAJA = [
+    "oxigeno_naricera",
+    "o2_naricera",
+    "oxigeno_mascarilla_multivent",
+    "o2_multiventuri"
 ]
 
 # ============================================
@@ -81,6 +107,13 @@ def paciente_tiene_requerimientos_hospitalizacion(paciente: Paciente) -> bool:
     tiene_aislamiento_aereo = paciente.tipo_aislamiento == TipoAislamientoEnum.AEREO
     return bool(reqs_uci or reqs_uti or reqs_baja or tiene_aislamiento_aereo)
 
+def paciente_tiene_casos_especiales(paciente: Paciente) -> bool:
+    """
+    Verifica si el paciente tiene casos especiales que impiden el alta.
+    Casos especiales: socio-sanitario, socio-judicial, espera cardiocirugía.
+    """
+    casos = json.loads(paciente.casos_especiales or "[]")
+    return bool(casos and len(casos) > 0)
 
 def obtener_requerimientos_oxigeno_actuales(paciente: Paciente) -> List[str]:
     """Obtiene los requerimientos de oxígeno actuales del paciente."""
@@ -120,6 +153,118 @@ def verificar_activacion_oxigeno(reqs_oxigeno_previos: List[str], reqs_oxigeno_a
             return True
     return False
 
+def detectar_tipo_oxigeno_desmarcado(
+    reqs_oxigeno_previos: List[str], 
+    reqs_oxigeno_actuales: List[str]
+) -> Dict[str, any]:
+    """
+    Detecta qué tipo de oxígeno fue desmarcado y su nivel de complejidad.
+    
+    Retorna:
+        {
+            'desmarcado': bool - Si se desmarcó algún oxígeno
+            'tipo_oxigeno': str - Nombre del oxígeno desmarcado
+            'nivel_previo': str - 'uci', 'uti', 'baja' o None
+            'nivel_actual': str - 'uci', 'uti', 'baja' o None
+            'es_desescalaje': bool - Si hubo desescalaje de complejidad de O2
+        }
+    """
+    resultado = {
+        'desmarcado': False,
+        'tipo_oxigeno': None,
+        'nivel_previo': None,
+        'nivel_actual': None,
+        'es_desescalaje': False
+    }
+    
+    def obtener_nivel_oxigeno(reqs: List[str]) -> str:
+        """Obtiene el nivel más alto de oxígeno en una lista de requerimientos."""
+        for req in reqs:
+            req_lower = req.lower().replace(" ", "_")
+            for oxigeno_uci in OXIGENO_UCI:
+                if oxigeno_uci in req_lower or req_lower in oxigeno_uci:
+                    return 'uci'
+        for req in reqs:
+            req_lower = req.lower().replace(" ", "_")
+            for oxigeno_uti in OXIGENO_UTI:
+                if oxigeno_uti in req_lower or req_lower in oxigeno_uti:
+                    return 'uti'
+        for req in reqs:
+            req_lower = req.lower().replace(" ", "_")
+            for oxigeno_baja in OXIGENO_BAJA:
+                if oxigeno_baja in req_lower or req_lower in oxigeno_baja:
+                    return 'baja'
+        return None
+    
+    # Calcular niveles previo y actual
+    resultado['nivel_previo'] = obtener_nivel_oxigeno(reqs_oxigeno_previos or [])
+    resultado['nivel_actual'] = obtener_nivel_oxigeno(reqs_oxigeno_actuales or [])
+    
+    if not reqs_oxigeno_previos:
+        return resultado
+    
+    # Buscar qué oxígeno fue desmarcado
+    for req_previo in reqs_oxigeno_previos:
+        if req_previo not in reqs_oxigeno_actuales:
+            resultado['desmarcado'] = True
+            resultado['tipo_oxigeno'] = req_previo
+            break
+    
+    # Determinar si es un desescalaje (bajó el nivel de complejidad de O2)
+    niveles_orden = {'uci': 3, 'uti': 2, 'baja': 1, None: 0}
+    nivel_previo_num = niveles_orden.get(resultado['nivel_previo'], 0)
+    nivel_actual_num = niveles_orden.get(resultado['nivel_actual'], 0)
+    
+    resultado['es_desescalaje'] = nivel_actual_num < nivel_previo_num
+    
+    return resultado
+
+
+def detectar_escalamiento_uti_a_uci(
+    reqs_oxigeno_previos: List[str], 
+    reqs_oxigeno_actuales: List[str]
+) -> bool:
+    """
+    Detecta si hay un escalamiento de oxígeno UTI a UCI.
+    
+    Retorna True si:
+    - Se desmarcó un oxígeno UTI (o2_reservorio, cnaf, vmni)
+    - Y simultáneamente se marcó un oxígeno UCI (vmi)
+    
+    En este caso NO debe aplicarse la pausa de oxígeno porque
+    el paciente está siendo escalado a mayor complejidad.
+    """
+    if not reqs_oxigeno_previos:
+        return False
+    
+    # Verificar si se desmarcó algún oxígeno UTI
+    oxigeno_uti_desmarcado = False
+    for req_previo in reqs_oxigeno_previos:
+        if req_previo not in reqs_oxigeno_actuales:
+            req_lower = req_previo.lower().replace(" ", "_")
+            for oxigeno_uti in OXIGENO_UTI:
+                if oxigeno_uti in req_lower or req_lower in oxigeno_uti:
+                    oxigeno_uti_desmarcado = True
+                    break
+        if oxigeno_uti_desmarcado:
+            break
+    
+    if not oxigeno_uti_desmarcado:
+        return False
+    
+    # Verificar si se activó algún oxígeno UCI
+    oxigeno_uci_activado = False
+    for req_actual in reqs_oxigeno_actuales:
+        if req_actual not in (reqs_oxigeno_previos or []):
+            req_lower = req_actual.lower().replace(" ", "_")
+            for oxigeno_uci in OXIGENO_UCI:
+                if oxigeno_uci in req_lower or req_lower in oxigeno_uci:
+                    oxigeno_uci_activado = True
+                    break
+        if oxigeno_uci_activado:
+            break
+    
+    return oxigeno_uti_desmarcado and oxigeno_uci_activado
 
 def paciente_en_periodo_espera_oxigeno(paciente: Paciente, tiempo_espera_segundos: int = 120) -> bool:
     """Verifica si el paciente está en periodo de espera post-desactivación de oxígeno."""
@@ -142,6 +287,30 @@ def obtener_tipo_servicio_cama(cama: Cama, session: Session) -> Optional[TipoSer
     if not servicio:
         return None
     return servicio.tipo
+
+
+def obtener_tipo_servicio_paciente(paciente: Paciente, session: Session) -> Optional[TipoServicioEnum]:
+    """
+    Obtiene el tipo de servicio donde está actualmente hospitalizado un paciente.
+    
+    NUEVA FUNCIÓN: Utilizada para determinar el servicio de origen en la
+    lógica de priorización por transición de servicios.
+    
+    Args:
+        paciente: El paciente a consultar
+        session: Sesión de base de datos
+    
+    Returns:
+        TipoServicioEnum si el paciente tiene cama asignada, None en caso contrario
+    """
+    if not paciente.cama_id:
+        return None
+    
+    cama = session.get(Cama, paciente.cama_id)
+    if not cama:
+        return None
+    
+    return obtener_tipo_servicio_cama(cama, session)
 
 
 def servicio_compatible_con_enfermedad(tipo_servicio: TipoServicioEnum, tipo_enfermedad: TipoEnfermedadEnum) -> bool:
@@ -408,11 +577,23 @@ def cama_es_compatible(cama: Cama, paciente: Paciente, session: Session) -> Tupl
 
 
 def verificar_alta_sugerida(paciente: Paciente) -> bool:
-    """Verifica si el paciente cumple criterios para alta sugerida."""
-    # No tiene requerimientos que requieran hospitalización
-    if not paciente_tiene_requerimientos_hospitalizacion(paciente):
-        return True
-    return False
+    """
+    Verifica si el paciente cumple criterios para alta sugerida.
+    
+    El paciente NO califica para alta si:
+    - Tiene requerimientos de hospitalización (UCI, UTI, baja, aislamiento aéreo)
+    - Tiene casos especiales (socio-sanitario, socio-judicial, espera cardiocirugía)
+    """
+    # Si tiene casos especiales, NO puede darse de alta
+    if paciente_tiene_casos_especiales(paciente):
+        return False
+    
+    # Si tiene requerimientos de hospitalización, NO puede darse de alta
+    if paciente_tiene_requerimientos_hospitalizacion(paciente):
+        return False
+    
+    # Solo si no tiene ni casos especiales ni requerimientos, califica para alta
+    return True
 
 
 def determinar_estado_cama_tras_reevaluacion(
@@ -426,12 +607,12 @@ def determinar_estado_cama_tras_reevaluacion(
     """
     Determina el estado de la cama tras una reevaluación.
     
-    LÓGICA CORRECTA:
-    1. Detectar si hubo desactivación de oxígeno
-    2. Verificar si algún cambio requiere traslado
-    3. Si requiere traslado Y hubo desactivación de oxígeno → periodo de espera
-    4. Si requiere traslado pero NO hubo desactivación → cambio inmediato
-    5. Si NO requiere traslado → mantener estado actual o alta sugerida
+    LÓGICA DE PAUSA DE OXÍGENO:
+    
+    1. La pausa se activa cuando hay desescalaje de O2 (UCI->UTI, UTI->baja, baja->nada)
+    2. EXCEPCIÓN: No aplicar pausa si es escalamiento UTI->UCI
+    3. Si ya hay una pausa en curso (oxigeno_desactivado_at existe) y ahora necesita
+       cambio de cama/alta, RESPETAR el tiempo restante de la pausa original
     
     Retorna:
     - Estado de cama sugerido
@@ -440,50 +621,107 @@ def determinar_estado_cama_tras_reevaluacion(
     """
     reqs_oxigeno_actuales = obtener_requerimientos_oxigeno_actuales(paciente)
     
-    # Detectar si hubo DESACTIVACIÓN de oxígeno (no activación)
-    hubo_desactivacion_oxigeno = verificar_desactivacion_oxigeno(
+    # Detectar información de oxígeno
+    info_oxigeno = detectar_tipo_oxigeno_desmarcado(
         reqs_oxigeno_previos or [], 
         reqs_oxigeno_actuales
     )
     
     # ========== PASO 1: Verificar cambio de tipo de enfermedad ==========
+    necesita_cambio_por_enfermedad = False
+    mensaje_enfermedad = ""
     if tipo_enfermedad_previo and tipo_enfermedad_previo != paciente.tipo_enfermedad:
-        requiere_traslado, mensaje = verificar_cambio_tipo_enfermedad_requiere_traslado(
+        necesita_cambio_por_enfermedad, mensaje_enfermedad = verificar_cambio_tipo_enfermedad_requiere_traslado(
             paciente, cama_actual, session, tipo_enfermedad_previo
         )
-        if requiere_traslado:
-            # Solo aplicar espera si hubo desactivación de oxígeno
-            if hubo_desactivacion_oxigeno:
-                return EstadoCamaEnum.OCUPADA, "Evaluando desescalaje de oxígeno", True
-            return EstadoCamaEnum.CAMA_EN_ESPERA, mensaje, False
     
     # ========== PASO 2: Verificar cambio de aislamiento ==========
+    necesita_cambio_por_aislamiento = False
+    mensaje_aislamiento = ""
     if tipo_aislamiento_previo and tipo_aislamiento_previo != paciente.tipo_aislamiento:
-        requiere_traslado, mensaje = verificar_cambio_aislamiento_requiere_traslado(
+        necesita_cambio_por_aislamiento, mensaje_aislamiento = verificar_cambio_aislamiento_requiere_traslado(
             paciente, cama_actual, session, tipo_aislamiento_previo
         )
-        if requiere_traslado:
-            # Solo aplicar espera si hubo desactivación de oxígeno
-            if hubo_desactivacion_oxigeno:
-                return EstadoCamaEnum.OCUPADA, "Evaluando desescalaje de oxígeno", True
-            return EstadoCamaEnum.CAMA_EN_ESPERA, mensaje, False
     
     # ========== PASO 3: Verificar compatibilidad completa ==========
-    es_compatible, razon = cama_es_compatible(cama_actual, paciente, session)
+    es_compatible, razon_incompatibilidad = cama_es_compatible(cama_actual, paciente, session)
     
-    if not es_compatible:
-        # La cama actual NO es compatible, necesita nueva cama
-        # Solo aplicar espera si hubo desactivación de oxígeno
-        if hubo_desactivacion_oxigeno:
-            return EstadoCamaEnum.OCUPADA, "Evaluando desescalaje de oxígeno", True
-        return EstadoCamaEnum.CAMA_EN_ESPERA, f"Paciente requiere nueva cama: {razon}", False
+    # ========== PASO 4: Verificar si califica para alta ==========
+    califica_alta = verificar_alta_sugerida(paciente)
     
-    # ========== PASO 4: La cama ES compatible ==========
-    # Verificar si debería sugerir alta
-    if verificar_alta_sugerida(paciente):
-        # Solo aplicar espera si hubo desactivación de oxígeno
-        if hubo_desactivacion_oxigeno:
-            return EstadoCamaEnum.OCUPADA, "Evaluando desescalaje de oxígeno", True
+    # ========== PASO 5: Determinar si necesita cambio de cama ==========
+    necesita_cambio_cama = (
+        necesita_cambio_por_enfermedad or 
+        necesita_cambio_por_aislamiento or 
+        not es_compatible
+    )
+    
+    # Determinar mensaje de cambio
+    mensaje_cambio = ""
+    if necesita_cambio_por_enfermedad:
+        mensaje_cambio = mensaje_enfermedad
+    elif necesita_cambio_por_aislamiento:
+        mensaje_cambio = mensaje_aislamiento
+    elif not es_compatible:
+        mensaje_cambio = f"Paciente requiere nueva cama: {razon_incompatibilidad}"
+    
+    # ========== PASO 6: LÓGICA DE PAUSA DE OXÍGENO ==========
+    necesita_espera_oxigeno = False
+    
+    # CASO A: Ya existe una pausa de oxígeno en curso
+    if paciente.oxigeno_desactivado_at:
+        # Si ahora necesita cambio de cama o alta, mantener la pausa activa
+        if necesita_cambio_cama or califica_alta:
+            print(f"[OXÍGENO] Pausa en curso - ahora necesita cambio/alta, mantener pausa")
+            return (
+                EstadoCamaEnum.OCUPADA, 
+                f"Evaluando desescalaje de oxígeno (pausa en curso)", 
+                True  # Indica que debe mantener la pausa existente, NO crear una nueva
+            )
+        else:
+            # No necesita cambio ni alta, pero la pausa sigue activa
+            # El proceso automático se encargará de finalizar la pausa
+            print(f"[OXÍGENO] Pausa en curso - sin cambio requerido aún")
+            return (
+                EstadoCamaEnum.OCUPADA, 
+                f"Evaluando desescalaje de oxígeno", 
+                True
+            )
+    
+    # CASO B: Nueva desactivación de oxígeno en esta reevaluación
+    if info_oxigeno['desmarcado'] and info_oxigeno['es_desescalaje']:
+        # Verificar si es un escalamiento UTI -> UCI (excepción)
+        es_escalamiento_a_uci = detectar_escalamiento_uti_a_uci(
+            reqs_oxigeno_previos or [], 
+            reqs_oxigeno_actuales
+        )
+        
+        if es_escalamiento_a_uci:
+            print(f"[OXÍGENO] Escalamiento UTI->UCI detectado, no se aplica pausa")
+            necesita_espera_oxigeno = False
+        else:
+            # Hubo desescalaje de O2 - SIEMPRE activar pausa
+            # La pausa se activa independientemente de si ahora necesita cambio de cama o no
+            # Porque si más adelante necesita cambio, debe respetar el tiempo de pausa
+            print(f"[OXÍGENO] Desescalaje detectado: {info_oxigeno['nivel_previo']} -> {info_oxigeno['nivel_actual']}")
+            necesita_espera_oxigeno = True
+    
+    # ========== PASO 7: Retornar estado según condiciones ==========
+    
+    # Si necesita espera por oxígeno, mantener OCUPADA con mensaje de evaluación
+    if necesita_espera_oxigeno:
+        return (
+            EstadoCamaEnum.OCUPADA, 
+            f"Evaluando desescalaje de oxígeno ({info_oxigeno['tipo_oxigeno']})", 
+            True
+        )
+    
+    # Si necesita cambio de cama (sin espera de oxígeno)
+    if necesita_cambio_cama:
+        return EstadoCamaEnum.CAMA_EN_ESPERA, mensaje_cambio, False
+    
+    # Si califica para alta (sin espera de oxígeno)
+    if califica_alta:
         return EstadoCamaEnum.ALTA_SUGERIDA, "Alta sugerida", False
     
     # Todo bien, la cama es compatible y tiene requerimientos
@@ -493,6 +731,12 @@ def determinar_estado_cama_tras_reevaluacion(
 def procesar_pacientes_espera_oxigeno(session: Session, tiempo_espera_segundos: int = 120) -> List[Dict]:
     """
     Procesa los pacientes que están en periodo de espera post-desactivación de oxígeno.
+    
+    LÓGICA CORREGIDA:
+    - Al finalizar la pausa, reevaluar si necesita cambio de cama o alta
+    - Si necesita cambio -> CAMA_EN_ESPERA
+    - Si califica para alta -> ALTA_SUGERIDA
+    - Si ninguno -> mantener OCUPADA
     """
     query = select(Paciente).where(
         Paciente.oxigeno_desactivado_at.isnot(None)
@@ -520,20 +764,21 @@ def procesar_pacientes_espera_oxigeno(session: Session, tiempo_espera_segundos: 
                 if cama:
                     # Verificar compatibilidad y determinar nuevo estado
                     es_compatible, razon = cama_es_compatible(cama, paciente, session)
+                    califica_alta = verificar_alta_sugerida(paciente)
                     
                     if not es_compatible:
                         cama.estado = EstadoCamaEnum.CAMA_EN_ESPERA
                         cama.mensaje_estado = f"Paciente requiere nueva cama: {razon}"
                         paciente.requiere_nueva_cama = True
-                        print(f"[OXÍGENO] Cambiando a CAMA_EN_ESPERA")
-                    elif verificar_alta_sugerida(paciente):
+                        print(f"[OXÍGENO] Pausa completada -> CAMA_EN_ESPERA: {razon}")
+                    elif califica_alta:
                         cama.estado = EstadoCamaEnum.ALTA_SUGERIDA
                         cama.mensaje_estado = "Alta sugerida"
-                        print(f"[OXÍGENO] Cambiando a ALTA_SUGERIDA")
+                        print(f"[OXÍGENO] Pausa completada -> ALTA_SUGERIDA")
                     else:
                         cama.estado = EstadoCamaEnum.OCUPADA
                         cama.mensaje_estado = None
-                        print(f"[OXÍGENO] Manteniendo OCUPADA")
+                        print(f"[OXÍGENO] Pausa completada -> OCUPADA (sin cambios)")
                     
                     session.add(cama)
                     cambios.append({
@@ -549,10 +794,93 @@ def procesar_pacientes_espera_oxigeno(session: Session, tiempo_espera_segundos: 
     
     if cambios:
         session.commit()
-        print(f"[OXÍGENO] {len(cambios)} cambios realizados")
+        print(f"[OXÍGENO] {len(cambios)} pausas completadas")
     
     return cambios
 
+def omitir_pausa_oxigeno(paciente_id: str, session: Session) -> Dict:
+    """
+    Omite/salta la pausa de espera de oxígeno de un paciente.
+    
+    Esta función permite al usuario omitir el periodo de espera de 2 minutos
+    que se activa cuando se desactiva un requerimiento de oxígeno.
+    
+    Al omitir, se evalúa inmediatamente si el paciente:
+    - Necesita cambio de cama (incompatibilidad) -> CAMA_EN_ESPERA
+    - Califica para alta (sin requerimientos) -> ALTA_SUGERIDA
+    - Permanece estable -> OCUPADA
+    
+    Args:
+        paciente_id: ID del paciente
+        session: Sesión de base de datos
+    
+    Returns:
+        Dict con resultado de la operación
+    """
+    paciente = session.get(Paciente, paciente_id)
+    if not paciente:
+        return {"error": "Paciente no encontrado"}
+    
+    # Verificar que el paciente está en periodo de espera de oxígeno
+    if not paciente.oxigeno_desactivado_at:
+        return {"error": "El paciente no está en periodo de espera por oxígeno"}
+    
+    # Verificar que tiene cama asignada
+    if not paciente.cama_id:
+        return {"error": "El paciente no tiene cama asignada"}
+    
+    cama = session.get(Cama, paciente.cama_id)
+    if not cama:
+        return {"error": "Cama no encontrada"}
+    
+    # Limpiar flags de oxígeno
+    paciente.oxigeno_desactivado_at = None
+    paciente.requerimientos_oxigeno_previos = None
+    
+    # Evaluar nuevo estado de la cama
+    es_compatible, razon = cama_es_compatible(cama, paciente, session)
+    califica_alta = verificar_alta_sugerida(paciente)
+    
+    resultado = {
+        "success": True,
+        "paciente_id": paciente.id,
+        "paciente_nombre": paciente.nombre,
+        "cama_id": cama.id,
+        "cama_identificador": cama.identificador
+    }
+    
+    if not es_compatible:
+        # Paciente requiere nueva cama
+        cama.estado = EstadoCamaEnum.CAMA_EN_ESPERA
+        cama.mensaje_estado = f"Paciente requiere nueva cama: {razon}"
+        paciente.requiere_nueva_cama = True
+        resultado["nuevo_estado"] = "cama_en_espera"
+        resultado["requiere_nueva_cama"] = True
+        resultado["motivo"] = razon
+        print(f"[OMITIR OXÍGENO] Paciente {paciente.nombre} -> CAMA_EN_ESPERA: {razon}")
+        
+    elif califica_alta:
+        # Paciente califica para alta
+        cama.estado = EstadoCamaEnum.ALTA_SUGERIDA
+        cama.mensaje_estado = "Alta sugerida"
+        paciente.requiere_nueva_cama = False
+        resultado["nuevo_estado"] = "alta_sugerida"
+        resultado["califica_alta"] = True
+        print(f"[OMITIR OXÍGENO] Paciente {paciente.nombre} -> ALTA_SUGERIDA")
+        
+    else:
+        # Paciente permanece estable en cama actual
+        cama.estado = EstadoCamaEnum.OCUPADA
+        cama.mensaje_estado = None
+        paciente.requiere_nueva_cama = False
+        resultado["nuevo_estado"] = "ocupada"
+        print(f"[OMITIR OXÍGENO] Paciente {paciente.nombre} -> OCUPADA (sin cambios)")
+    
+    session.add(cama)
+    session.add(paciente)
+    session.commit()
+    
+    return resultado
 
 # ============================================
 # CANCELACIÓN DE TRASLADOS/DERIVACIONES
@@ -561,7 +889,7 @@ def procesar_pacientes_espera_oxigeno(session: Session, tiempo_espera_segundos: 
 
 def cancelar_asignacion(paciente_id: str, session: Session, contexto: str = "auto") -> Dict:
     """
-    FUNCIÓN PRINCIPAL DE CANCELACIÓN - UNIFICADA
+    FUNCIÓN PRINCIPAL DE CANCELACIÓN - UNIFICADA Y CORREGIDA
     
     Cancela la asignación de cama de un paciente.
     Determina automáticamente el flujo correcto según el estado.
@@ -576,12 +904,20 @@ def cancelar_asignacion(paciente_id: str, session: Session, contexto: str = "aut
            → Cama a CAMA_EN_ESPERA, paciente sale de lista
         2. Desde cama destino (TRASLADO_ENTRANTE): 
            → Cama libre, paciente vuelve a lista
-        3. Derivación desde destino: 
-           → Paciente vuelve a lista derivación, cama origen a ESPERA_DERIVACION
-        4. Derivación desde origen: 
-           → Cama a OCUPADA, derivación cancelada
+        3. Derivación desde destino (TRASLADO_ENTRANTE para derivado): 
+           → Paciente vuelve a lista derivación, cama origen mantiene DERIVACION_CONFIRMADA
+        4. Derivación desde origen (DERIVACION_CONFIRMADA/ESPERA_DERIVACION): 
+           → Cama a OCUPADA, derivación cancelada completamente
         5. Paciente nuevo: 
            → Eliminar del sistema
+        6. Derivado en lista de espera (sin cama destino asignada aún):
+           → Vuelve a lista de derivación
+    
+    CORRECCIONES APLICADAS:
+    - Usa cama_origen_derivacion_id para derivados (cama_id es None después de aceptar)
+    - Restaura hospital_id al hospital original
+    - Remueve de la cola del hospital destino
+    - Mantiene DERIVACION_CONFIRMADA cuando derivado vuelve a lista (no cambia a ESPERA_DERIVACION)
     """
     paciente = session.get(Paciente, paciente_id)
     if not paciente:
@@ -599,12 +935,16 @@ def cancelar_asignacion(paciente_id: str, session: Session, contexto: str = "aut
     es_paciente_nuevo = not paciente.cama_id and not cama_origen_derivacion and paciente.tipo_paciente in [TipoPacienteEnum.URGENCIA, TipoPacienteEnum.AMBULATORIO]
     es_hospitalizado = paciente.cama_id is not None and not es_derivado
     
+    # CORRECCIÓN: Para derivados, la cama de origen real es cama_origen_derivacion
+    cama_origen_real = cama_origen or cama_origen_derivacion
+    
     print(f"[CANCELAR] Paciente: {paciente.nombre}, es_derivado={es_derivado}, es_nuevo={es_paciente_nuevo}, es_hospitalizado={es_hospitalizado}")
     print(f"[CANCELAR] cama_origen={cama_origen}, cama_destino={cama_destino}, cama_origen_derivacion={cama_origen_derivacion}")
+    print(f"[CANCELAR] cama_origen_real={cama_origen_real}")
     
     # ========== CASO 1: Cancelación desde cama TRASLADO_SALIENTE o TRASLADO_CONFIRMADO ==========
-    # Paciente hospitalizado que está buscando nueva cama
-    if cama_origen and cama_origen.estado in [EstadoCamaEnum.TRASLADO_SALIENTE, EstadoCamaEnum.TRASLADO_CONFIRMADO]:
+    # Paciente hospitalizado (NO derivado) que está buscando nueva cama
+    if cama_origen and cama_origen.estado in [EstadoCamaEnum.TRASLADO_SALIENTE, EstadoCamaEnum.TRASLADO_CONFIRMADO] and not es_derivado:
         print(f"[CANCELAR] CASO 1: Desde cama origen TRASLADO_SALIENTE/CONFIRMADO")
         
         # Liberar cama destino si existe
@@ -649,30 +989,43 @@ def cancelar_asignacion(paciente_id: str, session: Session, contexto: str = "aut
         
         # ========== CASO 2a: Si es derivado, volver a lista de derivación ==========
         if es_derivado and cama_origen_derivacion:
-            print(f"[CANCELAR] CASO 2a: Derivado vuelve a lista de derivación")
+            print(f"[CANCELAR] CASO 2a: Derivado vuelve a lista de derivación pendiente")
             
-            # Actualizar cama de origen de derivación a ESPERA_DERIVACION
+            # CORRECCIÓN: La cama de origen de derivación vuelve a ESPERA_DERIVACION
+            # porque el paciente vuelve a la lista de derivaciones PENDIENTES
             cama_origen_derivacion.estado = EstadoCamaEnum.ESPERA_DERIVACION
             cama_origen_derivacion.cama_asignada_destino = None
-            cama_origen_derivacion.mensaje_estado = "Derivación pendiente"
+            cama_origen_derivacion.mensaje_estado = "Derivación pendiente de confirmación"
             session.add(cama_origen_derivacion)
             print(f"[CANCELAR] Cama origen derivación {cama_origen_derivacion.identificador} -> ESPERA_DERIVACION")
             
-            # Paciente vuelve a estado pendiente de derivación
+            # CORRECCIÓN: Obtener hospital original de la cama de origen
+            hospital_origen_id = None
+            if cama_origen_derivacion.sala_id:
+                sala = session.get(Sala, cama_origen_derivacion.sala_id)
+                if sala:
+                    servicio = session.get(Servicio, sala.servicio_id)
+                    if servicio:
+                        hospital_origen_id = servicio.hospital_id
+            
+            # Guardar hospital destino antes de modificar
+            hospital_destino_id = paciente.hospital_id
+            
+            # Paciente vuelve a estado PENDIENTE de derivación
+            # Así aparecerá en la lista de derivaciones pendientes del hospital destino
             paciente.cama_destino_id = None
             paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-            paciente.derivacion_estado = "pendiente"
-            paciente.en_lista_espera = False
+            paciente.derivacion_estado = "pendiente"  # CORRECCIÓN: Volver a pendiente
+            paciente.en_lista_espera = False  # No está en lista de espera, está en lista de derivación
             
-            # Remover de cola del hospital destino
-            gestor_colas_global.remover_paciente(paciente.id, paciente.hospital_id, session, paciente)
+            # CORRECCIÓN: Restaurar hospital_id al hospital de origen
+            if hospital_origen_id:
+                paciente.hospital_id = hospital_origen_id
+                print(f"[CANCELAR] Hospital restaurado a {hospital_origen_id}")
             
-            # Restaurar hospital original
-            if cama_origen_derivacion.sala:
-                servicio = session.get(Servicio, cama_origen_derivacion.sala.servicio_id)
-                if servicio:
-                    paciente.hospital_id = servicio.hospital_id
-                    print(f"[CANCELAR] Hospital restaurado a {servicio.hospital_id}")
+            # CORRECCIÓN: Remover de cola del hospital destino
+            gestor_colas_global.remover_paciente(paciente.id, hospital_destino_id, session, paciente)
+            print(f"[CANCELAR] Paciente removido de cola hospital destino")
             
             session.add(paciente)
             session.commit()
@@ -698,34 +1051,60 @@ def cancelar_asignacion(paciente_id: str, session: Session, contexto: str = "aut
         return resultado
     
     # ========== CASO 3: Cancelación de derivación desde cama origen ==========
-    if cama_origen and cama_origen.estado in [EstadoCamaEnum.DERIVACION_CONFIRMADA, EstadoCamaEnum.ESPERA_DERIVACION]:
+    # CORRECCIÓN: Usar cama_origen_real que considera cama_origen_derivacion
+    if cama_origen_real and cama_origen_real.estado in [EstadoCamaEnum.DERIVACION_CONFIRMADA, EstadoCamaEnum.ESPERA_DERIVACION]:
         print(f"[CANCELAR] CASO 3: Derivación desde cama origen")
         
+        # CORRECCIÓN: Obtener hospital original de la cama de origen
+        hospital_origen_id = None
+        if cama_origen_real.sala_id:
+            sala = session.get(Sala, cama_origen_real.sala_id)
+            if sala:
+                servicio = session.get(Servicio, sala.servicio_id)
+                if servicio:
+                    hospital_origen_id = servicio.hospital_id
+        
         # Cama origen vuelve a OCUPADA
-        cama_origen.estado = EstadoCamaEnum.OCUPADA
-        cama_origen.cama_asignada_destino = None
-        cama_origen.mensaje_estado = None
-        cama_origen.paciente_derivado_id = None
-        session.add(cama_origen)
-        print(f"[CANCELAR] Cama origen {cama_origen.identificador} -> OCUPADA")
+        cama_origen_real.estado = EstadoCamaEnum.OCUPADA
+        cama_origen_real.cama_asignada_destino = None
+        cama_origen_real.mensaje_estado = None
+        cama_origen_real.paciente_derivado_id = None
+        session.add(cama_origen_real)
+        print(f"[CANCELAR] Cama origen {cama_origen_real.identificador} -> OCUPADA")
         
         # Liberar cama destino si existe
         if cama_destino:
             cama_destino.estado = EstadoCamaEnum.LIBRE
             cama_destino.mensaje_estado = None
             session.add(cama_destino)
+            print(f"[CANCELAR] Cama destino liberada")
+        
+        # CORRECCIÓN: Guardar hospital_destino_id antes de limpiar
+        hospital_destino_id = paciente.derivacion_hospital_destino_id
         
         # Cancelar derivación del paciente
-        hospital_destino_id = paciente.derivacion_hospital_destino_id
         paciente.derivacion_estado = "cancelado"
         paciente.en_lista_espera = False
         paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
         paciente.cama_destino_id = None
+        
+        # CORRECCIÓN: Restaurar cama_id si el paciente es derivado
+        if not paciente.cama_id and paciente.cama_origen_derivacion_id:
+            paciente.cama_id = paciente.cama_origen_derivacion_id
+        
+        # Limpiar referencia de derivación
         paciente.cama_origen_derivacion_id = None
         
-        # Remover de cola del hospital destino si estaba
+        # CORRECCIÓN: Restaurar hospital_id al hospital original
+        if hospital_origen_id:
+            old_hospital = paciente.hospital_id
+            paciente.hospital_id = hospital_origen_id
+            print(f"[CANCELAR] Hospital restaurado de {old_hospital} a {hospital_origen_id}")
+        
+        # CORRECCIÓN: Remover de cola del hospital destino si estaba
         if hospital_destino_id:
             gestor_colas_global.remover_paciente(paciente.id, hospital_destino_id, session, paciente)
+            print(f"[CANCELAR] Paciente removido de cola de hospital destino {hospital_destino_id}")
         
         session.add(paciente)
         session.commit()
@@ -754,30 +1133,47 @@ def cancelar_asignacion(paciente_id: str, session: Session, contexto: str = "aut
         return resultado
     
     # ========== CASO 5: Derivado en lista de espera (sin cama destino asignada aún) ==========
+    # Este caso ocurre cuando el derivado está en la lista de espera del hospital destino
+    # pero aún no se le ha asignado una cama (nunca llegó a TRASLADO_ENTRANTE)
     if es_derivado and paciente.en_lista_espera and cama_origen_derivacion:
-        print(f"[CANCELAR] CASO 5: Derivado en lista de espera")
+        print(f"[CANCELAR] CASO 5: Derivado en lista de espera sin cama destino")
         
-        # Actualizar cama de origen de derivación
-        cama_origen_derivacion.estado = EstadoCamaEnum.ESPERA_DERIVACION
-        cama_origen_derivacion.cama_asignada_destino = None
-        cama_origen_derivacion.mensaje_estado = "Derivación pendiente"
-        session.add(cama_origen_derivacion)
-        
-        # Paciente vuelve a estado pendiente de derivación
-        paciente.derivacion_estado = "pendiente"
-        paciente.en_lista_espera = False
-        paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-        
-        # Remover de cola del hospital destino
-        gestor_colas_global.remover_paciente(paciente.id, paciente.hospital_id, session, paciente)
-        
-        # Restaurar hospital original
-        if cama_origen_derivacion.sala:
+        # CORRECCIÓN: Obtener hospital original de la cama de origen
+        hospital_origen_id = None
+        if cama_origen_derivacion.sala_id:
             sala = session.get(Sala, cama_origen_derivacion.sala_id)
             if sala:
                 servicio = session.get(Servicio, sala.servicio_id)
                 if servicio:
-                    paciente.hospital_id = servicio.hospital_id
+                    hospital_origen_id = servicio.hospital_id
+        
+        # Guardar hospital destino antes de modificar
+        hospital_destino_id = paciente.hospital_id  # El paciente ya está en el hospital destino
+        
+        # Actualizar cama de origen de derivación a ESPERA_DERIVACION
+        # porque el paciente vuelve a la lista de derivaciones pendientes
+        cama_origen_derivacion.estado = EstadoCamaEnum.ESPERA_DERIVACION
+        cama_origen_derivacion.cama_asignada_destino = None
+        cama_origen_derivacion.mensaje_estado = "Derivación pendiente de confirmación"
+        # NO limpiar paciente_derivado_id porque aún está vinculado al paciente
+        session.add(cama_origen_derivacion)
+        print(f"[CANCELAR] Cama origen derivación {cama_origen_derivacion.identificador} -> ESPERA_DERIVACION")
+        
+        # Paciente: volver a estado pendiente de derivación
+        paciente.derivacion_estado = "pendiente"  # Volver a pendiente para que aparezca en lista
+        paciente.en_lista_espera = False
+        paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
+        # NO restaurar cama_id aún - eso se hace cuando se RECHAZA la derivación
+        # paciente.cama_id = paciente.cama_origen_derivacion_id  # NO HACER ESTO
+        # paciente.cama_origen_derivacion_id = None  # NO LIMPIAR - se necesita para el rechazo
+        
+        # CORRECCIÓN: Restaurar hospital original
+        if hospital_origen_id:
+            paciente.hospital_id = hospital_origen_id
+            print(f"[CANCELAR] Hospital restaurado a {hospital_origen_id}")
+        
+        # Remover de cola del hospital destino
+        gestor_colas_global.remover_paciente(paciente.id, hospital_destino_id, session, paciente)
         
         session.add(paciente)
         session.commit()
@@ -898,14 +1294,25 @@ def ordenar_servicios_por_prioridad(servicios: List[Servicio], paciente: Pacient
 # ============================================
 
 def ejecutar_asignacion_automatica(hospital_id: str, session: Session) -> List[Dict]:
-    """Ejecuta el proceso de asignación automática para un hospital."""
+    """
+    Ejecuta el proceso de asignación automática para un hospital.
+    
+    MODIFICACIÓN: Ahora usa obtener_lista_ordenada_con_transicion() para
+    calcular prioridades considerando el servicio de origen de cada paciente.
+    
+    Esto permite que:
+    - Para camas UTI: pacientes de UCI tengan mayor prioridad
+    - Para camas UCI: pacientes de otros servicios tengan prioridad sobre UTI
+    """
     config = session.exec(select(ConfiguracionSistema)).first()
     if config and config.modo_manual:
         return []
     
     asignaciones = []
     cola = gestor_colas_global.obtener_cola(hospital_id)
-    lista_pacientes = cola.obtener_lista_ordenada(session)
+    
+    # MODIFICACIÓN: Usar lista con prioridad por transición de servicios
+    lista_pacientes = cola.obtener_lista_ordenada_con_transicion(session)
     
     for info_paciente in lista_pacientes:
         paciente = session.get(Paciente, info_paciente["paciente_id"])
@@ -929,6 +1336,11 @@ def ejecutar_asignacion_automatica(hospital_id: str, session: Session) -> List[D
         if cama:
             asignacion = asignar_cama_a_paciente(paciente, cama, session)
             if asignacion:
+                # Agregar información de transición al log de asignación
+                servicio_origen = info_paciente.get("servicio_origen")
+                if servicio_origen:
+                    asignacion["servicio_origen"] = servicio_origen
+                    print(f"[ASIGNACIÓN] Paciente de {servicio_origen} -> {cama.identificador}")
                 asignaciones.append(asignacion)
         else:
             paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
@@ -980,7 +1392,18 @@ def asignar_cama_a_paciente(paciente: Paciente, cama: Cama, session: Session) ->
 
 
 def completar_traslado(paciente_id: str, session: Session) -> Dict:
-    """Completa el traslado de un paciente a su cama asignada."""
+    """
+    Completa el traslado de un paciente a su cama asignada.
+    
+    MEJORAS:
+    1. Verifica la compatibilidad cama-paciente al llegar a la nueva cama
+    2. Verifica si califica para alta sugerida
+    
+    Lógica de estados al llegar a nueva cama:
+    - Si NO es compatible → CAMA_EN_ESPERA (requiere nueva cama)
+    - Si es compatible PERO califica para alta → ALTA_SUGERIDA
+    - Si es compatible y NO califica para alta → OCUPADA
+    """
     paciente = session.get(Paciente, paciente_id)
     if not paciente:
         return {"error": "Paciente no encontrado"}
@@ -993,6 +1416,7 @@ def completar_traslado(paciente_id: str, session: Session) -> Dict:
     
     cama_origen_id = paciente.cama_id
     
+    # ========== PASO 1: Liberar cama origen ==========
     if cama_origen_id:
         cama_origen = session.get(Cama, cama_origen_id)
         if cama_origen:
@@ -1004,6 +1428,7 @@ def completar_traslado(paciente_id: str, session: Session) -> Dict:
             session.add(cama_origen)
             actualizar_sexo_sala_si_vacia(cama_origen.sala_id, session)
     
+    # ========== PASO 2: Liberar cama de derivación si aplica ==========
     if paciente.cama_origen_derivacion_id:
         cama_derivacion = session.get(Cama, paciente.cama_origen_derivacion_id)
         if cama_derivacion and cama_derivacion.estado == EstadoCamaEnum.DERIVACION_CONFIRMADA:
@@ -1014,23 +1439,82 @@ def completar_traslado(paciente_id: str, session: Session) -> Dict:
             actualizar_sexo_sala_si_vacia(cama_derivacion.sala_id, session)
         paciente.cama_origen_derivacion_id = None
     
-    cama_destino.estado = EstadoCamaEnum.OCUPADA
-    cama_destino.mensaje_estado = None
-    session.add(cama_destino)
-    
+    # ========== PASO 3: Asignar nueva cama al paciente ==========
     paciente.cama_id = paciente.cama_destino_id
     paciente.cama_destino_id = None
     paciente.en_lista_espera = False
     paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-    paciente.requiere_nueva_cama = False
+    
+    # ========== PASO 4: VERIFICAR COMPATIBILIDAD Y ALTA AL LLEGAR ==========
+    # Esta es la lógica completa que replica lo que hace la reevaluación
+    
+    # Verificar compatibilidad primero
+    es_compatible, razon_incompatibilidad = cama_es_compatible(cama_destino, paciente, session)
+    
+    if not es_compatible:
+        # CASO 1: La cama NO es compatible - marcar para búsqueda de nueva cama
+        print(f"[COMPATIBILIDAD] Paciente {paciente.nombre} NO es compatible con cama {cama_destino.identificador}: {razon_incompatibilidad}")
+        
+        cama_destino.estado = EstadoCamaEnum.CAMA_EN_ESPERA
+        cama_destino.mensaje_estado = f"Paciente requiere nueva cama: {razon_incompatibilidad}"
+        paciente.requiere_nueva_cama = True
+        
+        resultado = {
+            "success": True, 
+            "paciente_id": paciente.id, 
+            "cama_nueva_id": paciente.cama_id,
+            "requiere_nueva_cama": True,
+            "motivo_incompatibilidad": razon_incompatibilidad,
+            "advertencia": "Paciente llegó a cama incompatible - requiere nueva asignación",
+            "estado_cama": "cama_en_espera"
+        }
+    else:
+        # CASO 2: La cama ES compatible - verificar si califica para alta
+        califica_alta = verificar_alta_sugerida(paciente)
+        
+        if califica_alta:
+            # Compatible pero sin requerimientos de hospitalización → ALTA_SUGERIDA
+            print(f"[ALTA SUGERIDA] Paciente {paciente.nombre} califica para alta en cama {cama_destino.identificador}")
+            
+            cama_destino.estado = EstadoCamaEnum.ALTA_SUGERIDA
+            cama_destino.mensaje_estado = "Alta sugerida"
+            paciente.requiere_nueva_cama = False
+            
+            resultado = {
+                "success": True, 
+                "paciente_id": paciente.id, 
+                "cama_nueva_id": paciente.cama_id,
+                "requiere_nueva_cama": False,
+                "califica_alta": True,
+                "estado_cama": "alta_sugerida"
+            }
+        else:
+            # CASO 3: Compatible y tiene requerimientos → OCUPADA (normal)
+            print(f"[COMPATIBILIDAD] Paciente {paciente.nombre} es compatible con cama {cama_destino.identificador}")
+            
+            cama_destino.estado = EstadoCamaEnum.OCUPADA
+            cama_destino.mensaje_estado = None
+            paciente.requiere_nueva_cama = False
+            
+            resultado = {
+                "success": True, 
+                "paciente_id": paciente.id, 
+                "cama_nueva_id": paciente.cama_id,
+                "requiere_nueva_cama": False,
+                "califica_alta": False,
+                "estado_cama": "ocupada"
+            }
+    
+    session.add(cama_destino)
     session.add(paciente)
     
+    # ========== PASO 5: Remover de cola de espera ==========
     gestor_colas_global.remover_paciente(paciente.id, paciente.hospital_id, session, paciente)
+    
+    # ========== PASO 6: Guardar cambios ==========
     session.commit()
     
-    return {"success": True, "paciente_id": paciente.id, "cama_nueva_id": paciente.cama_id}
-
-
+    return resultado
 # ============================================
 # FUNCIONES DE ALTA
 # ============================================

@@ -132,7 +132,8 @@ function initFormFromPaciente(paciente: Paciente | undefined, hospitalId: string
     tipo_enfermedad: TipoEnfermedadEnum.MEDICA,
     tipo_aislamiento: TipoAislamientoEnum.NINGUNO,
     notas_adicionales: '',
-    tipo_paciente: 'hospitalizado' as TipoPacienteEnum,
+    // CORRECCIÓN Problema 10: Por defecto es URGENCIA para nuevos pacientes
+    tipo_paciente: 'urgencia' as TipoPacienteEnum,
     hospital_id: hospitalId,
     
     req_kinesioterapia: false,
@@ -300,6 +301,14 @@ export function PacienteForm({
       return;
     }
 
+    // CORRECCIÓN Problema 10: Validar tipo de paciente para nuevos registros
+    if (!isReevaluacion) {
+      if (formData.tipo_paciente !== 'urgencia' && formData.tipo_paciente !== 'ambulatorio') {
+        onError('Solo se permite registrar pacientes de tipo Urgencia o Ambulatorio');
+        return;
+      }
+    }
+
     // Validar alta con requerimientos
     if (formData.alta_solicitada) {
       const tieneRequerimientosAltos = formData.req_vmi || formData.req_procuramiento_o2 ||
@@ -432,11 +441,28 @@ export function PacienteForm({
               onChange={handleChange}
               disabled={isReevaluacion}
             >
-              <option value="hospitalizado">Hospitalizado</option>
-              <option value="urgencia">Urgencia</option>
-              <option value="derivado">Derivado</option>
-              <option value="ambulatorio">Ambulatorio</option>
+              {/* CORRECCIÓN Problema 10: Solo mostrar opciones válidas para nuevos pacientes */}
+              {isReevaluacion ? (
+                // En reevaluación, mostrar el tipo actual (readonly)
+                <>
+                  <option value="hospitalizado">Hospitalizado</option>
+                  <option value="urgencia">Urgencia</option>
+                  <option value="derivado">Derivado</option>
+                  <option value="ambulatorio">Ambulatorio</option>
+                </>
+              ) : (
+                // Para nuevos pacientes, solo URGENCIA o AMBULATORIO
+                <>
+                  <option value="urgencia">Urgencia</option>
+                  <option value="ambulatorio">Ambulatorio</option>
+                </>
+              )}
             </select>
+            {!isReevaluacion && (
+              <small className="form-hint">
+                El sistema asignará automáticamente "Hospitalizado" o "Derivado" según corresponda.
+              </small>
+            )}
           </div>
         </div>
       </section>

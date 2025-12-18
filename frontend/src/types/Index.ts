@@ -245,6 +245,8 @@ export interface ConfiguracionSistema {
   id?: string;
   modo_manual: boolean;
   tiempo_limpieza_segundos: number;
+  // NUEVO: Campo para tiempo de espera de oxígeno (Problema 12)
+  tiempo_espera_oxigeno_segundos?: number;
 }
 
 // Request/Response types - Coincide con PacienteCreate del backend (schemas.py)
@@ -272,6 +274,7 @@ export interface PacienteCreate {
   procedimiento_invasivo?: string;
   
   // Tipo de paciente (requerido por el backend)
+  // CORRECCIÓN Problema 10: Solo URGENCIA o AMBULATORIO permitidos para nuevos pacientes
   tipo_paciente: TipoPacienteEnum;
   hospital_id: string;
   
@@ -429,10 +432,17 @@ export interface EstadisticasGlobales {
 }
 
 // WebSocket events
+// CORRECCIÓN Problema 11: Agregado campo play_sound para notificaciones de audio
 export interface WebSocketEvent {
   tipo: string;
   datos?: Record<string, unknown>;
   timestamp?: string;
+  // Campo para indicar si se debe reproducir sonido de notificación
+  play_sound?: boolean;
+  // Tipo de notificación (asignacion, traslado, alta, etc.)
+  notification_type?: string;
+  // Mensaje para mostrar al usuario
+  message?: string;
   [key: string]: unknown;
 }
 
@@ -449,6 +459,13 @@ export interface ListaEsperaItem {
   posicion?: number;
   tiempo_espera_min?: number;
   estado_lista?: string;
+  // NCAMPOS para filtros de origen y destino
+origen_tipo?: 'derivado' | 'hospitalizado' | 'urgencia' | 'ambulatorio';
+origen_hospital_nombre?: string;  // Para derivados
+origen_hospital_codigo?: string;  // Para derivados
+origen_servicio_nombre?: string;  // Para hospitalizados y derivados
+origen_cama_identificador?: string;  // Para hospitalizados y derivados
+servicio_destino?: string;  // UCI, UTI, Medicina, Cirugía, etc.
 }
 
 // Derivado item - campos adicionales del backend
