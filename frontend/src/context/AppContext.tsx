@@ -1,276 +1,366 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode, useRef } from 'react';
-import type {
-  Hospital,
-  Cama,
-  ConfiguracionSistema,
-  EstadisticasGlobales,
-  ListaEsperaItem,
+import type { 
+  Hospital, 
+  Cama, 
+  ConfiguracionSistema, 
+  ListaEsperaItem, 
   DerivadoItem,
+  AlertState,
   WebSocketEvent
-} from '../types/Index';
+} from '../types'
 import * as api from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 
-interface AppState {
+// ============================================
+// TIPOS DEL CONTEXT
+// ============================================
+
+interface AppContextType {
+  // Estado
   hospitales: Hospital[];
-  hospitalActual: Hospital | null;
+  hospitalSeleccionado: Hospital | null;
   camas: Cama[];
-  configuracion: ConfiguracionSistema | null;
-  estadisticas: EstadisticasGlobales | null;
   listaEspera: ListaEsperaItem[];
   derivados: DerivadoItem[];
+  configuracion: ConfiguracionSistema | null;
   loading: boolean;
-  error: string | null;
+  alert: AlertState | null;
   wsConnected: boolean;
+  dataVersion: number;
+  
+  // Acciones
+  setHospitalSeleccionado: (hospital: Hospital | null) => void;
+  recargarCamas: () => Promise<void>;
+  recargarListaEspera: () => Promise<void>;
+  recargarDerivados: () => Promise<void>;
+  recargarTodo: () => Promise<void>;
+  setConfiguracion: (config: ConfiguracionSistema) => void;
+  showAlert: (tipo: AlertState['tipo'], mensaje: string) => void;
+  hideAlert: () => void;
+  testSound: () => void;
 }
 
-interface AppContextValue extends AppState {
-  setHospitalActual: (hospital: Hospital | null) => void;
-  cargarHospitales: () => Promise<void>;
-  cargarCamas: (hospitalId: string) => Promise<void>;
-  cargarListaEspera: (hospitalId: string) => Promise<void>;
-  cargarDerivados: (hospitalId: string) => Promise<void>;
-  cargarConfiguracion: () => Promise<void>;
-  cargarEstadisticas: () => Promise<void>;
-  refrescarDatos: () => Promise<void>;
-  setError: (error: string | null) => void;
-  clearError: () => void;
-}
+const AppContext = createContext<AppContextType | null>(null);
 
-const AppContext = createContext<AppContextValue | undefined>(undefined);
+// ============================================
+// PROVIDER
+// ============================================
 
-interface AppProviderProps {
-  children: ReactNode;
-}
+export function AppProvider({ children }: { children: ReactNode }) {
+  // Estado principal
+  const [hospitales, setHospitales] = useState<Hospital[]>([]);
+  const [hospitalSeleccionado, setHospitalSeleccionado] = useState<Hospital | null>(null);
+  const [camas, setCamas] = useState<Cama[]>([]);
+  const [listaEspera, setListaEspera] = useState<ListaEsperaItem[]>([]);
+  const [derivados, setDerivados] = useState<DerivadoItem[]>([]);
+  const [configuracion, setConfiguracion] = useState<ConfiguracionSistema | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [alert, setAlert] = useState<AlertState | null>(null);
+  const [dataVersion, setDataVersion] = useState(0);
 
-export function AppProvider({ children }: AppProviderProps) {
-  const [state, setState] = useState<AppState>({
-    hospitales: [],
-    hospitalActual: null,
-    camas: [],
-    configuracion: null,
-    estadisticas: null,
-    listaEspera: [],
-    derivados: [],
-    loading: false,
-    error: null,
-    wsConnected: false
-  });
-
-  // Ref para acceder al hospital actual sin causar re-renders en callbacks
-  const hospitalActualRef = useRef<Hospital | null>(null);
-
-  // Mantener ref sincronizada
+  // Ref para acceder al hospital actual sin causar re-renders del callback
+  const hospitalRef = useRef<Hospital | null>(null);
+  
+  // Flag para evitar múltiples recargas simultáneas
+  const isReloadingRef = useRef(false);
+  
+  // Mantener ref sincronizado con el estado
   useEffect(() => {
-    hospitalActualRef.current = state.hospitalActual;
-  }, [state.hospitalActual]);
+    hospitalRef.current = hospitalSeleccionado;
+  }, [hospitalSeleccionado]);
 
-  // Handler de WebSocket - usa ref para evitar recreación del callback
-  const handleWsMessage = useCallback((event: WebSocketEvent) => {
-    console.log('WebSocket event:', event);
-    const currentHospital = hospitalActualRef.current;
-    if (currentHospital) {
-      api.getCamasHospital(currentHospital.id).then(camas => {
-        setState(prev => ({ ...prev, camas }));
-      }).catch(console.error);
-      api.getListaEspera(currentHospital.id).then(listaEspera => {
-        setState(prev => ({ ...prev, listaEspera }));
-      }).catch(console.error);
-      api.getDerivados(currentHospital.id).then(derivados => {
-        setState(prev => ({ ...prev, derivados }));
-      }).catch(console.error);
+  // ============================================
+  // FUNCIÓN DE RECARGA DIRECTA (para WebSocket)
+  // ============================================
+  const recargarDatosDirecto = useCallback(async () => {
+    const hospital = hospitalRef.current;
+    if (!hospital?.id) {
+      console.log('[WS] No hay hospital seleccionado, ignorando recarga');
+      return;
     }
-    api.getEstadisticas().then(estadisticas => {
-      setState(prev => ({ ...prev, estadisticas }));
-    }).catch(console.error);
-  }, []);
-
-  const handleWsConnect = useCallback(() => {
-    setState(prev => ({ ...prev, wsConnected: true }));
-  }, []);
-
-  const handleWsDisconnect = useCallback(() => {
-    setState(prev => ({ ...prev, wsConnected: false }));
-  }, []);
-
-  const { isConnected } = useWebSocket({
-    onMessage: handleWsMessage,
-    onConnect: handleWsConnect,
-    onDisconnect: handleWsDisconnect
-  });
-
-  useEffect(() => {
-    setState(prev => ({ ...prev, wsConnected: isConnected }));
-  }, [isConnected]);
-
-  // Cargar hospitales
-  const cargarHospitales = useCallback(async () => {
-    try {
-      setState(prev => ({ ...prev, loading: true, error: null }));
-      const hospitales = await api.getHospitales();
-      setState(prev => ({ ...prev, hospitales, loading: false }));
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Error cargando hospitales'
-      }));
-    }
-  }, []);
-
-  // Cargar camas - NO modifica loading para evitar race conditions
-  const cargarCamas = useCallback(async (hospitalId: string) => {
-    try {
-      const camas = await api.getCamasHospital(hospitalId);
-      setState(prev => ({ ...prev, camas }));
-    } catch (error) {
-      console.error('Error cargando camas:', error);
-      setState(prev => ({
-        ...prev,
-        error: error instanceof Error ? error.message : 'Error cargando camas'
-      }));
-    }
-  }, []);
-
-  // Cargar lista de espera
-  const cargarListaEspera = useCallback(async (hospitalId: string) => {
-    try {
-      const listaEspera = await api.getListaEspera(hospitalId);
-      setState(prev => ({ ...prev, listaEspera }));
-    } catch (error) {
-      console.error('Error cargando lista de espera:', error);
-    }
-  }, []);
-
-  // Cargar derivados
-  const cargarDerivados = useCallback(async (hospitalId: string) => {
-    try {
-      const derivados = await api.getDerivados(hospitalId);
-      setState(prev => ({ ...prev, derivados }));
-    } catch (error) {
-      console.error('Error cargando derivados:', error);
-    }
-  }, []);
-
-  // Cargar configuración
-  const cargarConfiguracion = useCallback(async () => {
-    try {
-      const configuracion = await api.getConfiguracion();
-      setState(prev => ({ ...prev, configuracion }));
-    } catch (error) {
-      console.error('Error cargando configuración:', error);
-    }
-  }, []);
-
-  // Cargar estadísticas
-  const cargarEstadisticas = useCallback(async () => {
-    try {
-      const estadisticas = await api.getEstadisticas();
-      setState(prev => ({ ...prev, estadisticas }));
-    } catch (error) {
-      console.error('Error cargando estadísticas:', error);
-    }
-  }, []);
-
-  // Establecer hospital actual
-  const setHospitalActual = useCallback((hospital: Hospital | null) => {
-    // Actualizar ref inmediatamente
-    hospitalActualRef.current = hospital;
     
-    if (hospital) {
-      // Actualizar estado con hospital, loading y limpiar datos anteriores
-      setState(prev => ({ 
-        ...prev, 
-        hospitalActual: hospital,
-        loading: true,
-        camas: [],
-        listaEspera: [],
-        derivados: []
-      }));
-      
-      // Cargar todos los datos del hospital en paralelo
-      Promise.all([
+    if (isReloadingRef.current) {
+      console.log('[WS] Ya hay una recarga en progreso, ignorando');
+      return;
+    }
+    
+    isReloadingRef.current = true;
+    console.log('[WS] Recargando datos para hospital:', hospital.nombre);
+    
+    // ============================================
+    // PRESERVAR POSICIÓN DEL SCROLL
+    // ============================================
+    const scrollPosition = window.scrollY;
+    const scrollElement = document.scrollingElement || document.documentElement;
+    
+    try {
+      const [camasData, listaData, derivadosData] = await Promise.all([
         api.getCamasHospital(hospital.id),
         api.getListaEspera(hospital.id),
         api.getDerivados(hospital.id)
-      ]).then(([camas, listaEspera, derivados]) => {
-        setState(prev => ({
-          ...prev,
-          camas,
-          listaEspera,
-          derivados,
-          loading: false
-        }));
-      }).catch(error => {
-        console.error('Error cargando datos del hospital:', error);
-        setState(prev => ({
-          ...prev,
-          loading: false,
-          error: error instanceof Error ? error.message : 'Error cargando datos del hospital'
-        }));
-      });
-    } else {
-      // Limpiar todo cuando no hay hospital
-      setState(prev => ({ 
-        ...prev, 
-        hospitalActual: null,
-        camas: [],
-        listaEspera: [],
-        derivados: [],
-        loading: false
-      }));
-    }
-  }, []);
-
-  // Refrescar todos los datos
-  const refrescarDatos = useCallback(async () => {
-    await cargarHospitales();
-    await cargarConfiguracion();
-    await cargarEstadisticas();
-    const currentHospital = hospitalActualRef.current;
-    if (currentHospital) {
-      await Promise.all([
-        cargarCamas(currentHospital.id),
-        cargarListaEspera(currentHospital.id),
-        cargarDerivados(currentHospital.id)
       ]);
+      
+      setCamas([...camasData]);
+      setListaEspera([...listaData]);
+      setDerivados([...derivadosData]);
+      setDataVersion(v => v + 1);
+      
+      // ============================================
+      // RESTAURAR POSICIÓN DEL SCROLL
+      // ============================================
+      // Usar requestAnimationFrame para asegurar que el DOM se haya actualizado
+      requestAnimationFrame(() => {
+        // Doble requestAnimationFrame para mayor seguridad en la sincronización
+        requestAnimationFrame(() => {
+          window.scrollTo({
+            top: scrollPosition,
+            behavior: 'instant'
+          });
+        });
+      });
+      
+      console.log('[WS] Datos recargados exitosamente');
+    } catch (error) {
+      console.error('[WS] Error recargando datos:', error);
+    } finally {
+      isReloadingRef.current = false;
     }
-  }, [cargarHospitales, cargarConfiguracion, cargarEstadisticas, cargarCamas, cargarListaEspera, cargarDerivados]);
-
-  // Manejo de errores
-  const setError = useCallback((error: string | null) => {
-    setState(prev => ({ ...prev, error }));
   }, []);
 
-  const clearError = useCallback(() => {
-    setState(prev => ({ ...prev, error: null }));
+  // ============================================
+  // HANDLER DE WEBSOCKET
+  // ============================================
+  const handleWebSocketMessage = useCallback((event: WebSocketEvent) => {
+    console.log('[WS] Mensaje recibido:', event.tipo, 'reload:', event.reload);
+    
+    if (event.reload === true) {
+      const eventosRecarga = [
+        'paciente_creado',
+        'paciente_actualizado',
+        'asignacion_completada',
+        'asignacion_automatica',
+        'busqueda_iniciada',
+        'busqueda_cancelada',
+        'pausa_oxigeno_omitida',
+        'traslado_completado',
+        'traslado_iniciado',
+        'alta_ejecutada',
+        'alta_iniciada',
+        'limpieza_completada',
+        'estado_actualizado',
+        'configuracion_actualizada',
+        'cama_bloqueada',
+        'cama_desbloqueada',
+        'evaluacion_oxigeno_completada',
+        'camas_liberadas'
+      ];
+      
+      if (eventosRecarga.includes(event.tipo)) {
+        console.log('[WS] Ejecutando recarga por evento:', event.tipo);
+        recargarDatosDirecto();
+      } else {
+        const currentHospital = hospitalRef.current;
+        if (event.hospital_id && currentHospital && event.hospital_id === currentHospital.id) {
+          console.log('[WS] Ejecutando recarga por hospital_id match');
+          recargarDatosDirecto();
+        }
+      }
+    }
+  }, [recargarDatosDirecto]);
+
+  // ============================================
+  // WEBSOCKET HOOK
+  // ============================================
+  const { isConnected: wsConnected, testSound } = useWebSocket({
+    onMessage: handleWebSocketMessage,
+    onConnect: () => console.log('[WS] Conectado al servidor'),
+    onDisconnect: () => console.log('[WS] Desconectado del servidor'),
+    enableSound: true
+  });
+
+  // ============================================
+  // FUNCIONES DE CARGA PÚBLICAS
+  // ============================================
+  const recargarCamas = useCallback(async () => {
+    if (!hospitalSeleccionado) return;
+    
+    const scrollPosition = window.scrollY;
+    
+    try {
+      const data = await api.getCamasHospital(hospitalSeleccionado.id);
+      setCamas([...data]);
+      setDataVersion(v => v + 1);
+      
+      // Restaurar scroll
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollPosition, behavior: 'instant' });
+      });
+    } catch (error) {
+      console.error('Error al cargar camas:', error);
+    }
+  }, [hospitalSeleccionado]);
+
+  const recargarListaEspera = useCallback(async () => {
+    if (!hospitalSeleccionado) return;
+    
+    const scrollPosition = window.scrollY;
+    
+    try {
+      const data = await api.getListaEspera(hospitalSeleccionado.id);
+      setListaEspera([...data]);
+      setDataVersion(v => v + 1);
+      
+      // Restaurar scroll
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollPosition, behavior: 'instant' });
+      });
+    } catch (error) {
+      console.error('Error al cargar lista de espera:', error);
+    }
+  }, [hospitalSeleccionado]);
+
+  const recargarDerivados = useCallback(async () => {
+    if (!hospitalSeleccionado) return;
+    
+    const scrollPosition = window.scrollY;
+    
+    try {
+      const data = await api.getDerivados(hospitalSeleccionado.id);
+      setDerivados([...data]);
+      setDataVersion(v => v + 1);
+      
+      // Restaurar scroll
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollPosition, behavior: 'instant' });
+      });
+    } catch (error) {
+      console.error('Error al cargar derivados:', error);
+    }
+  }, [hospitalSeleccionado]);
+
+  const recargarTodo = useCallback(async () => {
+    if (!hospitalSeleccionado) return;
+    
+    // ============================================
+    // PRESERVAR POSICIÓN DEL SCROLL
+    // ============================================
+    const scrollPosition = window.scrollY;
+    
+    try {
+      const [camasData, listaData, derivadosData] = await Promise.all([
+        api.getCamasHospital(hospitalSeleccionado.id),
+        api.getListaEspera(hospitalSeleccionado.id),
+        api.getDerivados(hospitalSeleccionado.id)
+      ]);
+      
+      setCamas([...camasData]);
+      setListaEspera([...listaData]);
+      setDerivados([...derivadosData]);
+      setDataVersion(v => v + 1);
+      
+      // ============================================
+      // RESTAURAR POSICIÓN DEL SCROLL
+      // ============================================
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo({
+            top: scrollPosition,
+            behavior: 'instant'
+          });
+        });
+      });
+    } catch (error) {
+      console.error('Error al recargar todo:', error);
+    }
+  }, [hospitalSeleccionado]);
+
+  // ============================================
+  // ALERTAS
+  // ============================================
+  const showAlert = useCallback((tipo: AlertState['tipo'], mensaje: string) => {
+    setAlert({ tipo, mensaje });
+    setTimeout(() => setAlert(null), 5000);
   }, []);
 
-  // Cargar datos iniciales
+  const hideAlert = useCallback(() => {
+    setAlert(null);
+  }, []);
+
+  // ============================================
+  // CARGA INICIAL
+  // ============================================
   useEffect(() => {
-    cargarHospitales();
-    cargarConfiguracion();
-    cargarEstadisticas();
-  }, [cargarHospitales, cargarConfiguracion, cargarEstadisticas]);
+    async function cargarDatosIniciales() {
+      try {
+        setLoading(true);
+        const [hospitalesData, configData] = await Promise.all([
+          api.getHospitales(),
+          api.getConfiguracion()
+        ]);
+        
+        setHospitales(hospitalesData);
+        setConfiguracion(configData);
+        
+        if (hospitalesData.length > 0) {
+          setHospitalSeleccionado(hospitalesData[0]);
+        }
+      } catch (error) {
+        console.error('Error al cargar datos iniciales:', error);
+        showAlert('error', 'Error al conectar con el servidor');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    cargarDatosIniciales();
+  }, [showAlert]);
 
-  const value: AppContextValue = {
-    ...state,
-    setHospitalActual,
-    cargarHospitales,
-    cargarCamas,
-    cargarListaEspera,
-    cargarDerivados,
-    cargarConfiguracion,
-    cargarEstadisticas,
-    refrescarDatos,
-    setError,
-    clearError
+  // ============================================
+  // RECARGAR AL CAMBIAR HOSPITAL
+  // ============================================
+  useEffect(() => {
+    if (hospitalSeleccionado) {
+      recargarTodo();
+    }
+  }, [hospitalSeleccionado, recargarTodo]);
+
+  // ============================================
+  // VALOR DEL CONTEXTO
+  // ============================================
+  const value: AppContextType = {
+    hospitales,
+    hospitalSeleccionado,
+    camas,
+    listaEspera,
+    derivados,
+    configuracion,
+    loading,
+    alert,
+    wsConnected,
+    dataVersion,
+    setHospitalSeleccionado,
+    recargarCamas,
+    recargarListaEspera,
+    recargarDerivados,
+    recargarTodo,
+    setConfiguracion,
+    showAlert,
+    hideAlert,
+    testSound
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      {children}
+    </AppContext.Provider>
+  );
 }
 
-export function useApp(): AppContextValue {
+// ============================================
+// HOOK
+// ============================================
+
+export function useApp() {
   const context = useContext(AppContext);
   if (!context) {
     throw new Error('useApp debe usarse dentro de AppProvider');

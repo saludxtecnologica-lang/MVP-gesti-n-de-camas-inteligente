@@ -1,0 +1,1 @@
+export { CamaCard } from './CamaCard';

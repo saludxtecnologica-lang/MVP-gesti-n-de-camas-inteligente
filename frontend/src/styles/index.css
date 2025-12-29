@@ -3065,3 +3065,345 @@ a:hover {
   transform: scale(1.02);
   transition: transform 0.2s;
 }
+
+/* ============================================
+   ESTILOS ADICIONALES PARA FORMULARIO DE PACIENTE
+   - Tooltips informativos
+   - Área de carga de archivos
+   - Campos condicionales de monitorización/observación
+   ============================================ */
+
+/* ============================================
+   TOOLTIPS
+   ============================================ */
+
+.tooltip-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-gray-400);
+  cursor: help;
+  transition: color var(--transition-fast);
+}
+
+.tooltip-icon:hover {
+  color: var(--color-primary);
+}
+
+.tooltip-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Tooltip nativo mejorado con CSS */
+.tooltip-icon[title] {
+  position: relative;
+}
+
+/* Para tooltips más elaborados (usando atributo title) */
+.tooltip-text {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 10px;
+  background-color: var(--color-gray-100);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-gray-600);
+  font-style: italic;
+}
+
+/* ============================================
+   CARGA DE ARCHIVOS
+   ============================================ */
+
+.file-upload-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.file-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-4);
+  background-color: var(--color-gray-50);
+  border: 2px dashed var(--color-gray-300);
+  border-radius: var(--radius-lg);
+  color: var(--color-gray-600);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.file-upload-button:hover {
+  background-color: var(--color-gray-100);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.file-upload-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.file-uploaded {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3) var(--spacing-4);
+  background-color: #dcfce7;
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+  color: #166534;
+}
+
+.file-uploaded svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.file-name {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-remove-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-1);
+  background: none;
+  border: none;
+  color: #dc2626;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast);
+}
+
+.btn-remove-file:hover {
+  background-color: rgba(220, 38, 38, 0.1);
+}
+
+.documento-existente {
+  margin-top: var(--spacing-2);
+}
+
+.link-documento {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  background-color: #dbeafe;
+  border-radius: var(--radius-md);
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  transition: background-color var(--transition-fast);
+}
+
+.link-documento:hover {
+  background-color: #bfdbfe;
+  text-decoration: none;
+}
+
+.link-documento svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================
+   CAMPOS CONDICIONALES (OBSERVACIÓN/MONITORIZACIÓN)
+   ============================================ */
+
+.sub-inputs-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+  padding-left: var(--spacing-6);
+}
+
+.sub-input {
+  width: 100%;
+  padding: var(--spacing-2) var(--spacing-3);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-gray-900);
+  background-color: white;
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.sub-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.sub-input::placeholder {
+  color: var(--color-gray-400);
+}
+
+/* Indicador visual de campo requerido */
+.sub-input[required]::placeholder::after {
+  content: ' *';
+  color: var(--color-error);
+}
+
+/* ============================================
+   MEJORAS AL FORMULARIO
+   ============================================ */
+
+/* Mejorar visualización de checkboxes en grid */
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing-3);
+}
+
+.checkbox-grid label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.checkbox-grid label:hover {
+  background-color: var(--color-gray-50);
+}
+
+.checkbox-grid input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* Grupos de requerimientos */
+.requerimientos-group {
+  margin-bottom: var(--spacing-6);
+  padding: var(--spacing-4);
+  background-color: var(--color-gray-50);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-gray-200);
+}
+
+.requerimientos-group h4 {
+  margin-bottom: var(--spacing-3);
+  padding-bottom: var(--spacing-2);
+  border-bottom: 2px solid var(--color-primary);
+  color: var(--color-gray-800);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+/* Colores por nivel de complejidad */
+.requerimientos-group:nth-child(1) h4 {
+  border-bottom-color: var(--color-gray-400);
+}
+
+.requerimientos-group:nth-child(2) h4 {
+  border-bottom-color: var(--color-warning);
+}
+
+.requerimientos-group:nth-child(3) h4 {
+  border-bottom-color: #f97316;
+}
+
+.requerimientos-group:nth-child(4) h4 {
+  border-bottom-color: var(--color-error);
+}
+
+/* Form hints */
+.form-hint {
+  display: block;
+  margin-top: var(--spacing-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-gray-500);
+  font-style: italic;
+}
+
+/* Mejoras para campos de edad vacíos */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1;
+}
+
+input[type="number"]::placeholder {
+  color: var(--color-gray-400);
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
+@media (max-width: 768px) {
+  .checkbox-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .file-upload-button {
+    width: 100%;
+  }
+  
+  .file-uploaded {
+    flex-wrap: wrap;
+  }
+  
+  .file-name {
+    width: 100%;
+    order: 2;
+    margin-top: var(--spacing-1);
+  }
+  
+  .sub-inputs-container {
+    padding-left: var(--spacing-4);
+  }
+}
+
+/* ============================================
+   ANIMACIONES PARA FEEDBACK VISUAL
+   ============================================ */
+
+@keyframes highlight-field {
+  0% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: rgba(37, 99, 235, 0.1);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.sub-input:focus {
+  animation: highlight-field 0.5s ease-out;
+}
+
+/* Indicador de campos requeridos activos */
+.sub-input:required:invalid {
+  border-color: var(--color-warning);
+}
+
+.sub-input:required:valid {
+  border-color: var(--color-success);
+}

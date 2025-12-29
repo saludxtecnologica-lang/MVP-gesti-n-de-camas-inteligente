@@ -1,10 +1,71 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { WebSocketEvent } from '../types/Index';
+import type { WebSocketEvent } from '../types';
 import { getWebSocketUrl } from '../services/api';
 
-// URL del archivo de sonido de notificación
-// Puedes usar un sonido desde la carpeta public o una URL externa
 const NOTIFICATION_SOUND_URL = '/notification.mp3';
+
+let notificationAudio: HTMLAudioElement | null = null;
+let audioLoadFailed = false;
+
+function playBeepSound(): void {
+  try {
+    const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
+    const audioContext = new AudioContext();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    oscillator.frequency.value = 880;
+    oscillator.type = 'sine';
+    gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.4);
+    
+    setTimeout(() => {
+      try {
+        const osc2 = audioContext.createOscillator();
+        const gain2 = audioContext.createGain();
+        osc2.connect(gain2);
+        gain2.connect(audioContext.destination);
+        osc2.frequency.value = 1320;
+        osc2.type = 'sine';
+        gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        osc2.start(audioContext.currentTime);
+        osc2.stop(audioContext.currentTime + 0.3);
+      } catch {
+        // Ignorar error del segundo tono
+      }
+    }, 150);
+  } catch (error) {
+    console.warn('No se pudo reproducir el sonido beep:', error);
+  }
+}
+
+function playNotificationSound(): void {
+  if (audioLoadFailed) {
+    playBeepSound();
+    return;
+  }
+  
+  try {
+    if (!notificationAudio) {
+      notificationAudio = new Audio(NOTIFICATION_SOUND_URL);
+      notificationAudio.volume = 0.5;
+      notificationAudio.onerror = () => {
+        audioLoadFailed = true;
+        playBeepSound();
+      };
+    }
+    
+    notificationAudio.currentTime = 0;
+    notificationAudio.play().catch(() => playBeepSound());
+  } catch {
+    playBeepSound();
+  }
+}
 
 interface UseWebSocketOptions {
   onMessage?: (event: WebSocketEvent) => void;
@@ -12,111 +73,7 @@ interface UseWebSocketOptions {
   onDisconnect?: () => void;
   reconnectInterval?: number;
   maxReconnectAttempts?: number;
-  enableSound?: boolean; // Opción para habilitar/deshabilitar sonidos
-}
-
-// Cache del audio para evitar recrearlo en cada notificación
-let notificationAudio: HTMLAudioElement | null = null;
-let audioLoadFailed = false;
-
-/**
- * Reproduce un sonido usando la Web Audio API como fallback
- * Esto funciona incluso sin un archivo de audio externo
- */
-function playBeepSound(): void {
-  try {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    // Configurar el tono - sonido más agradable para notificación
-    oscillator.frequency.value = 880; // La nota A5
-    oscillator.type = 'sine';
-    
-    // Configurar el volumen y fade out
-    gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
-    
-    // Reproducir
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.4);
-    
-    // Segundo tono (armonía)
-    setTimeout(() => {
-      try {
-        const osc2 = audioContext.createOscillator();
-        const gain2 = audioContext.createGain();
-        osc2.connect(gain2);
-        gain2.connect(audioContext.destination);
-        osc2.frequency.value = 1320; // E6
-        osc2.type = 'sine';
-        gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
-        gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-        osc2.start(audioContext.currentTime);
-        osc2.stop(audioContext.currentTime + 0.3);
-      } catch (e) {
-        // Ignorar error del segundo tono
-      }
-    }, 150);
-    
-    // Limpiar después de reproducir
-    setTimeout(() => {
-      try {
-        oscillator.disconnect();
-        gainNode.disconnect();
-      } catch (e) {
-        // Ignorar errores de limpieza
-      }
-    }, 600);
-  } catch (error) {
-    console.warn('No se pudo reproducir el sonido beep:', error);
-  }
-}
-
-/**
- * Reproduce un sonido de notificación
- * CORRECCIÓN Problema 11: Soporte para notificaciones con audio con fallback mejorado
- */
-function playNotificationSound(): void {
-  // Si ya sabemos que el archivo de audio falló, usar beep directamente
-  if (audioLoadFailed) {
-    playBeepSound();
-    return;
-  }
-  
-  try {
-    // Crear el audio solo una vez
-    if (!notificationAudio) {
-      notificationAudio = new Audio(NOTIFICATION_SOUND_URL);
-      notificationAudio.volume = 0.5; // Volumen al 50%
-      
-      // Manejar errores de carga
-      notificationAudio.onerror = () => {
-        console.warn('No se pudo cargar el archivo de sonido, usando beep');
-        audioLoadFailed = true;
-        playBeepSound();
-      };
-    }
-    
-    // Reiniciar y reproducir
-    notificationAudio.currentTime = 0;
-    notificationAudio.play()
-      .then(() => {
-        console.log('🔊 Sonido de notificación reproducido');
-      })
-      .catch(err => {
-        // El navegador puede bloquear la reproducción automática
-        // hasta que el usuario interactúe con la página
-        console.warn('No se pudo reproducir el sonido de notificación, intentando beep:', err);
-        playBeepSound();
-      });
-  } catch (error) {
-    console.error('Error al reproducir sonido de notificación, usando beep:', error);
-    playBeepSound();
-  }
+  enableSound?: boolean;
 }
 
 export function useWebSocket({
@@ -132,71 +89,94 @@ export function useWebSocket({
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enableSoundRef = useRef(enableSound);
+  
+  // Refs para los callbacks para evitar re-conexiones
+  const onMessageRef = useRef(onMessage);
+  const onConnectRef = useRef(onConnect);
+  const onDisconnectRef = useRef(onDisconnect);
 
-  // Mantener la referencia actualizada
+  // Actualizar refs cuando cambien los callbacks
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
+  
+  useEffect(() => {
+    onConnectRef.current = onConnect;
+  }, [onConnect]);
+  
+  useEffect(() => {
+    onDisconnectRef.current = onDisconnect;
+  }, [onDisconnect]);
+
   useEffect(() => {
     enableSoundRef.current = enableSound;
   }, [enableSound]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('[WS] Ya conectado, ignorando');
       return;
     }
 
     try {
-      const ws = new WebSocket(getWebSocketUrl());
+      const wsUrl = getWebSocketUrl();
+      console.log('[WS] Conectando a:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('WebSocket conectado');
+        console.log('[WS] Conexión establecida');
         setIsConnected(true);
         reconnectAttemptsRef.current = 0;
-        onConnect?.();
+        onConnectRef.current?.();
       };
 
-      ws.onclose = () => {
-        console.log('WebSocket desconectado');
+      ws.onclose = (event) => {
+        console.log('[WS] Conexión cerrada:', event.code, event.reason);
         setIsConnected(false);
-        onDisconnect?.();
+        onDisconnectRef.current?.();
 
-        // Intentar reconectar
+        // Reintentar conexión
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current++;
-          console.log(`Intentando reconectar (${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`);
+          console.log(`[WS] Reintentando conexión (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
           reconnectTimeoutRef.current = setTimeout(connect, reconnectInterval);
+        } else {
+          console.log('[WS] Máximo de reintentos alcanzado');
         }
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error('[WS] Error:', error);
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data) as WebSocketEvent;
+          console.log('[WS] Mensaje recibido:', data.tipo);
           
-          // CORRECCIÓN Problema 11: Reproducir sonido si play_sound es true
           if (enableSoundRef.current && data.play_sound === true) {
-            console.log('🔔 Evento de notificación con sonido recibido:', data.tipo);
             playNotificationSound();
           }
           
-          onMessage?.(data);
+          onMessageRef.current?.(data);
         } catch (err) {
-          console.error('Error parsing WebSocket message:', err);
+          console.error('[WS] Error parsing mensaje:', err);
         }
       };
     } catch (err) {
-      console.error('Error connecting WebSocket:', err);
+      console.error('[WS] Error conectando:', err);
     }
-  }, [onConnect, onDisconnect, onMessage, reconnectInterval, maxReconnectAttempts]);
+  }, [reconnectInterval, maxReconnectAttempts]);
 
   const disconnect = useCallback(() => {
+    console.log('[WS] Desconectando...');
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-    reconnectAttemptsRef.current = maxReconnectAttempts; // Prevent reconnection
+    reconnectAttemptsRef.current = maxReconnectAttempts; // Evitar reconexión
     wsRef.current?.close();
     wsRef.current = null;
   }, [maxReconnectAttempts]);
@@ -207,28 +187,20 @@ export function useWebSocket({
     }
   }, []);
 
-  // Función para probar el sonido manualmente
   const testSound = useCallback(() => {
     playNotificationSound();
   }, []);
 
-  // Función para reproducir beep (útil como fallback)
-  const playBeep = useCallback(() => {
-    playBeepSound();
-  }, []);
-
+  // Conectar al montar, desconectar al desmontar
   useEffect(() => {
     connect();
-    return () => {
-      disconnect();
-    };
+    return () => disconnect();
   }, [connect, disconnect]);
 
   return {
     isConnected,
     sendMessage,
     reconnect: connect,
-    testSound,
-    playBeep
+    testSound
   };
 }

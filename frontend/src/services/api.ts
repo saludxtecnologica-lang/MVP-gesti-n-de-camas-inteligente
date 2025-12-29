@@ -10,11 +10,22 @@ import type {
   DerivadoItem,
   DerivacionAccion,
   CamaBloquearRequest,
-  PrioridadExplicacion
-} from '../types/Index';
+  PrioridadExplicacion,
+  MessageResponse,
+  SexoEnum,
+  TipoPacienteEnum,
+  ComplejidadEnum,
+  TipoEnfermedadEnum,
+  TipoAislamientoEnum,
+  EstadoListaEsperaEnum,
+  EstadoCamaEnum
+} from '../types';
 
-// Obtener URL base de la API
-function getApiBase(): string {
+// ============================================
+// CONFIGURACIÓN BASE
+// ============================================
+
+export function getApiBase(): string {
   if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
@@ -23,15 +34,7 @@ function getApiBase(): string {
 
 const API_BASE = getApiBase();
 
-// Tipo para respuesta genérica del backend
-interface MessageResponse {
-  success: boolean;
-  message: string;
-  data?: Record<string, unknown>;
-}
-
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  // Asegurar que el endpoint comience con /api
   const url = `${API_BASE}${endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`}`;
   
   const response = await fetch(url, {
@@ -57,16 +60,12 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
               return `${field}: ${err.msg || 'error de validación'}`;
             })
             .join('; ');
-        } else if (typeof errorData.detail === 'object') {
-          errorMessage = JSON.stringify(errorData.detail);
         }
-      } else if (errorData.error) {
-        errorMessage = errorData.error;
       } else if (errorData.message) {
         errorMessage = errorData.message;
       }
     } catch {
-      // Si no se puede parsear el JSON, usar el mensaje por defecto
+      // Si no se puede parsear JSON, usar mensaje por defecto
     }
     
     throw new Error(errorMessage);
@@ -129,66 +128,45 @@ export async function getPaciente(id: string): Promise<Paciente> {
 }
 
 // ============================================
-// TRASLADOS - Rutas: /api/traslados/*
+// TRASLADOS
 // ============================================
 
-/**
- * Completa el traslado de un paciente a su cama asignada.
- */
 export async function completarTraslado(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/traslados/completar/${pacienteId}`, {
+  return fetchApi<MessageResponse>(`/traslados/${pacienteId}/completar`, {
     method: 'POST'
   });
 }
 
-/**
- * FUNCIÓN PRINCIPAL DE CANCELACIÓN
- * 
- * Cancela un traslado o derivación. El backend determina automáticamente
- * el tipo de cancelación según el estado del paciente y sus camas.
- * 
- * Flujos posibles:
- * 1. Desde cama origen (TRASLADO_SALIENTE): paciente vuelve a CAMA_EN_ESPERA, sale de lista
- * 2. Desde cama destino (TRASLADO_ENTRANTE): paciente vuelve a lista de espera
- * 3. Derivación desde destino: paciente vuelve a lista de derivación
- * 4. Derivación desde origen: cama vuelve a OCUPADA, se cancela todo
- * 5. Paciente nuevo: se elimina del sistema
- */
 export async function cancelarTraslado(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/traslados/cancelar/${pacienteId}`, {
+  return fetchApi<MessageResponse>(`/traslados/${pacienteId}/cancelar`, {
     method: 'POST'
   });
 }
 
-/**
- * CASO 1: Cancelar traslado específicamente desde la cama de origen.
- * 
- * Resultado:
- * - Paciente vuelve a cama actual en estado CAMA_EN_ESPERA
- * - Sale de lista de espera
- * - Queda listo para iniciar nueva búsqueda manualmente
- */
 export async function cancelarTrasladoDesdeOrigen(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/traslados/cancelar-desde-origen/${pacienteId}`, {
+  return fetchApi<MessageResponse>(`/traslados/${pacienteId}/cancelar-desde-origen`, {
     method: 'POST'
   });
 }
 
-/**
- * CASO 2: Cancelar traslado específicamente desde la cama de destino.
- * 
- * Resultado:
- * - Se libera cama destino
- * - Paciente permanece en lista de espera buscando otra cama
- */
 export async function cancelarTrasladoDesdeDestino(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/traslados/cancelar-desde-destino/${pacienteId}`, {
+  return fetchApi<MessageResponse>(`/traslados/${pacienteId}/cancelar-desde-destino`, {
     method: 'POST'
   });
 }
 
 // ============================================
-// BÚSQUEDA DE CAMA - Rutas: /api/pacientes/*
+// Cancelar traslado confirmado
+// ============================================
+
+export async function cancelarTrasladoConfirmado(pacienteId: string): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/traslados/${pacienteId}/cancelar-confirmado`, {
+    method: 'POST'
+  });
+}
+
+// ============================================
+// BÚSQUEDA DE CAMA
 // ============================================
 
 export async function buscarCamaPaciente(pacienteId: string): Promise<MessageResponse> {
@@ -199,40 +177,51 @@ export async function buscarCamaPaciente(pacienteId: string): Promise<MessageRes
 
 export async function cancelarBusquedaCama(pacienteId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>(`/pacientes/${pacienteId}/cancelar-busqueda`, {
-    method: 'POST'
+    method: 'DELETE'
   });
 }
 
 // ============================================
-// ALTA - Rutas: /api/pacientes/*
+// ALTA
 // ============================================
 
 export async function iniciarAlta(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/pacientes/${pacienteId}/iniciar-alta`, {
+  return fetchApi<MessageResponse>(`/altas/${pacienteId}/iniciar`, {
     method: 'POST'
   });
 }
 
 export async function ejecutarAlta(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/pacientes/${pacienteId}/ejecutar-alta`, {
+  return fetchApi<MessageResponse>(`/altas/${pacienteId}/ejecutar`, {
     method: 'POST'
   });
 }
 
 export async function cancelarAlta(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/pacientes/${pacienteId}/cancelar-alta`, {
+  return fetchApi<MessageResponse>(`/altas/${pacienteId}/cancelar`, {
     method: 'POST'
   });
 }
 
-/**
- * Omite el periodo de espera por desactivación de oxígeno.
- * 
- * El sistema evaluará inmediatamente si el paciente:
- * - Requiere cambio de cama
- * - Califica para alta
- * - Permanece estable
- */
+// ============================================
+// PAUSA DE OXÍGENO
+// ============================================
+
+export interface EstadoPausaOxigeno {
+  paciente_id: string;
+  en_pausa: boolean;
+  tiempo_total_segundos: number;
+  tiempo_restante_segundos: number;
+  tiempo_transcurrido_segundos: number;
+  requiere_nueva_cama: boolean;
+  puede_buscar_cama: boolean;
+  inicio_pausa: string | null;
+}
+
+export async function getEstadoPausaOxigeno(pacienteId: string): Promise<EstadoPausaOxigeno> {
+  return fetchApi<EstadoPausaOxigeno>(`/pacientes/${pacienteId}/estado-pausa-oxigeno`);
+}
+
 export async function omitirPausaOxigeno(pacienteId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>(`/pacientes/${pacienteId}/omitir-pausa-oxigeno`, {
     method: 'POST'
@@ -240,83 +229,25 @@ export async function omitirPausaOxigeno(pacienteId: string): Promise<MessageRes
 }
 
 // ============================================
-// DERIVACIONES - Rutas: /api/derivaciones/*
+// DERIVACIONES
 // ============================================
 
-/**
- * Acepta o rechaza una derivación pendiente.
- */
-export async function accionDerivacion(pacienteId: string, accion: DerivacionAccion): Promise<MessageResponse> {
+export async function accionDerivacion(pacienteId: string, data: DerivacionAccion): Promise<MessageResponse> {
   return fetchApi<MessageResponse>(`/derivaciones/${pacienteId}/accion`, {
     method: 'POST',
-    body: JSON.stringify({
-      accion: accion.accion,
-      motivo_rechazo: accion.motivo_rechazo
-    })
+    body: JSON.stringify(data)
   });
 }
 
-/**
- * Confirma el egreso de un paciente derivado desde el hospital de origen.
- * Usar cuando el paciente derivado ya tiene cama asignada en destino.
- */
 export async function confirmarEgresoDerivacion(pacienteId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>(`/derivaciones/${pacienteId}/confirmar-egreso`, {
     method: 'POST'
   });
 }
 
-/**
- * CASO 3: Cancelar derivación desde el hospital de destino.
- * 
- * Usar cuando:
- * - Se cancela desde la cama TRASLADO_ENTRANTE de un paciente derivado
- * - Se cancela desde la lista de espera de un paciente derivado
- * 
- * Resultado:
- * - Se libera cama destino si existe
- * - Paciente vuelve a lista de derivación (estado pendiente)
- * - Cama de origen vuelve de DERIVACION_CONFIRMADA a ESPERA_DERIVACION
- */
-export async function cancelarDerivacionDesdeDestino(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/derivaciones/${pacienteId}/cancelar-desde-destino`, {
+export async function cancelarDerivacion(pacienteId: string): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/derivaciones/${pacienteId}/cancelar`, {
     method: 'POST'
-  });
-}
-
-/**
- * CASO 4: Cancelar derivación desde el hospital de origen.
- * 
- * Usar cuando se cancela desde la cama de origen
- * en estado ESPERA_DERIVACION o DERIVACION_CONFIRMADA.
- * 
- * Resultado:
- * - Cama de origen vuelve a OCUPADA
- * - Se cancela todo el flujo de derivación
- * - Paciente permanece en su cama original
- */
-export async function cancelarDerivacionDesdeOrigen(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/derivaciones/${pacienteId}/cancelar-desde-origen`, {
-    method: 'POST'
-  });
-}
-
-// ============================================
-// ELIMINAR PACIENTE NUEVO
-// ============================================
-
-/**
- * CASO 5: Eliminar paciente nuevo (urgencias/ambulatorio) del sistema.
- * 
- * IMPORTANTE: La confirmación debe hacerse en el frontend antes de llamar.
- * 
- * Solo funciona para pacientes:
- * - Sin cama asignada
- * - Tipo URGENCIA o AMBULATORIO
- */
-export async function eliminarPacienteNuevo(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/pacientes/${pacienteId}/eliminar`, {
-    method: 'DELETE'
   });
 }
 
@@ -324,9 +255,6 @@ export async function eliminarPacienteNuevo(pacienteId: string): Promise<Message
 // MODO MANUAL
 // ============================================
 
-/**
- * Asigna manualmente una cama a un paciente desde la vista de cama
- */
 export async function asignarManualDesdeCama(pacienteId: string, camaDestinoId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>('/manual/asignar-desde-cama', {
     method: 'POST',
@@ -337,9 +265,6 @@ export async function asignarManualDesdeCama(pacienteId: string, camaDestinoId: 
   });
 }
 
-/**
- * Asigna manualmente una cama a un paciente desde la lista de espera
- */
 export async function asignarManualDesdeLista(pacienteId: string, camaDestinoId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>('/manual/asignar-desde-lista', {
     method: 'POST',
@@ -350,11 +275,8 @@ export async function asignarManualDesdeLista(pacienteId: string, camaDestinoId:
   });
 }
 
-/**
- * Realiza un traslado manual directo (modo manual)
- */
 export async function trasladoManual(pacienteId: string, camaDestinoId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>('/manual/trasladar', {
+  return fetchApi<MessageResponse>('/manual/traslado', {
     method: 'POST',
     body: JSON.stringify({
       paciente_id: pacienteId,
@@ -363,9 +285,6 @@ export async function trasladoManual(pacienteId: string, camaDestinoId: string):
   });
 }
 
-/**
- * Intercambia dos pacientes de cama (modo manual)
- */
 export async function intercambiarPacientes(pacienteAId: string, pacienteBId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>('/manual/intercambiar', {
     method: 'POST',
@@ -376,35 +295,47 @@ export async function intercambiarPacientes(pacienteAId: string, pacienteBId: st
   });
 }
 
-/**
- * Egresa manualmente a un paciente (modo manual)
- */
 export async function egresarManual(pacienteId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>(`/manual/egresar/${pacienteId}`, {
     method: 'POST'
   });
 }
 
-/**
- * Egresa a un paciente de la lista de espera.
- * 
- * Comportamiento según tipo:
- * - Hospitalizado: vuelve a CAMA_EN_ESPERA
- * - Derivado: vuelve a lista de derivación
- * - Nuevo: se elimina del sistema
- */
 export async function egresarDeLista(pacienteId: string): Promise<MessageResponse> {
-  return fetchApi<MessageResponse>(`/manual/egresar-lista/${pacienteId}`, {
-    method: 'POST'
+  return fetchApi<MessageResponse>(`/manual/egresar-de-lista/${pacienteId}`, {
+    method: 'DELETE'
   });
 }
 
 // ============================================
-// LISTA DE ESPERA
+// TIPOS EXTENDIDOS PARA LISTA DE ESPERA
 // ============================================
 
-export async function getListaEspera(hospitalId: string): Promise<ListaEsperaItem[]> {
-  // Interface actualizada con todos los campos de origen y destino
+export interface ListaEsperaItemExtended {
+  paciente_id: string;
+  nombre: string;
+  run: string;
+  prioridad: number;
+  posicion: number;
+  tiempo_espera_min: number;
+  tiempo_espera_minutos: number;
+  estado_lista: string;
+  estado: EstadoListaEsperaEnum;
+  origen_tipo: 'derivado' | 'hospitalizado' | 'urgencia' | 'ambulatorio' | null;
+  origen_hospital_nombre: string | null;
+  origen_hospital_codigo: string | null;
+  origen_servicio_nombre: string | null;
+  origen_cama_identificador: string | null;
+  servicio_destino: string | null;
+  // Campos adicionales
+  complejidad: string;
+  es_derivado: boolean;
+  tiene_cama_actual: boolean;
+  cama_actual_id: string | null;
+  paciente: Paciente;
+}
+
+export async function getListaEspera(hospitalId: string): Promise<ListaEsperaItemExtended[]> {
   interface ListaEsperaResponse {
     hospital_id: string;
     total_pacientes: number;
@@ -424,24 +355,23 @@ export async function getListaEspera(hospitalId: string): Promise<ListaEsperaIte
       tipo_aislamiento: string;
       tiene_cama_actual: boolean;
       cama_actual_id: string | null;
+      cama_destino_id?: string | null;
       timestamp: string;
-      // CAMPOS DE ORIGEN (nuevos - del backend)
       origen_tipo: string | null;
       origen_hospital_nombre: string | null;
       origen_hospital_codigo: string | null;
       origen_servicio_nombre: string | null;
       origen_cama_identificador: string | null;
-      // CAMPO DE DESTINO (nuevo - del backend)
       servicio_destino: string | null;
+      es_derivado?: boolean;
+      derivacion_estado?: string | null;
+      diagnostico?: string;
     }>;
   }
   
   const response = await fetchApi<ListaEsperaResponse>(`/hospitales/${hospitalId}/lista-espera`);
   
-  // Convertir al formato esperado por el frontend
-  // CORRECCIÓN: Ahora incluimos los campos de origen y destino
   return response.pacientes.map(p => ({
-    // Campos básicos del item
     paciente_id: p.paciente_id,
     nombre: p.nombre,
     run: p.run,
@@ -450,52 +380,71 @@ export async function getListaEspera(hospitalId: string): Promise<ListaEsperaIte
     tiempo_espera_min: p.tiempo_espera_min,
     tiempo_espera_minutos: p.tiempo_espera_min,
     estado_lista: p.estado_lista,
-    estado: p.estado_lista as any,
-    
-    // CORRECCIÓN: Campos de origen - mapeados directamente desde el backend
-    origen_tipo: p.origen_tipo,
+    estado: p.estado_lista as unknown as EstadoListaEsperaEnum,
+    origen_tipo: p.origen_tipo as 'derivado' | 'hospitalizado' | 'urgencia' | 'ambulatorio' | null,
     origen_hospital_nombre: p.origen_hospital_nombre,
     origen_hospital_codigo: p.origen_hospital_codigo,
     origen_servicio_nombre: p.origen_servicio_nombre,
     origen_cama_identificador: p.origen_cama_identificador,
-    
-    // CORRECCIÓN: Campo de destino - mapeado directamente desde el backend
     servicio_destino: p.servicio_destino,
-    
-    // Objeto paciente para compatibilidad con componentes existentes
+    // Campos adicionales mapeados
+    complejidad: p.complejidad,
+    es_derivado: p.es_derivado || p.origen_tipo === 'derivado' || p.derivacion_estado === 'aceptada',
+    tiene_cama_actual: p.tiene_cama_actual,
+    cama_actual_id: p.cama_actual_id,
     paciente: {
       id: p.paciente_id,
       nombre: p.nombre,
       run: p.run,
-      sexo: p.sexo as any,
+      sexo: p.sexo as unknown as SexoEnum,
       edad: p.edad,
-      tipo_paciente: p.tipo_paciente as any,
-      complejidad: p.complejidad as any,
-      complejidad_requerida: p.complejidad as any,
-      tipo_enfermedad: p.tipo_enfermedad as any,
-      tipo_aislamiento: p.tipo_aislamiento as any,
+      tipo_paciente: p.tipo_paciente as unknown as TipoPacienteEnum,
+      complejidad: p.complejidad as unknown as ComplejidadEnum,
+      complejidad_requerida: p.complejidad as unknown as ComplejidadEnum,
+      tipo_enfermedad: p.tipo_enfermedad as unknown as TipoEnfermedadEnum,
+      tipo_aislamiento: p.tipo_aislamiento as unknown as TipoAislamientoEnum,
       cama_id: p.cama_actual_id,
-      cama_actual_id: p.cama_actual_id,
-      // También incluir origen/destino en el objeto paciente para flexibilidad
+      cama_destino_id: p.cama_destino_id,
       origen_tipo: p.origen_tipo,
       origen_hospital_nombre: p.origen_hospital_nombre,
       origen_servicio_nombre: p.origen_servicio_nombre,
       servicio_destino: p.servicio_destino,
-      derivacion_estado: p.tipo_paciente === 'derivado' ? 'aceptado' : null
-    } as any
+      derivacion_estado: p.derivacion_estado || (p.tipo_paciente === 'derivado' ? 'aceptada' : null),
+      diagnostico: p.diagnostico
+    } as unknown as Paciente
   }));
 }
-
 
 export async function getPrioridadPaciente(pacienteId: string): Promise<PrioridadExplicacion> {
   return fetchApi<PrioridadExplicacion>(`/pacientes/${pacienteId}/prioridad`);
 }
 
 // ============================================
-// DERIVADOS
+// TIPOS EXTENDIDOS PARA DERIVADOS
 // ============================================
 
-export async function getDerivados(hospitalId: string): Promise<DerivadoItem[]> {
+export interface DerivadoItemExtended {
+  paciente_id: string;
+  nombre: string;
+  run: string;
+  prioridad: number;
+  tiempo_en_lista_min: number;
+  tiempo_en_lista_minutos: number;
+  hospital_origen_id: string;
+  hospital_origen_nombre: string;
+  motivo_derivacion: string;
+  motivo: string;
+  diagnostico: string;
+  complejidad: string;
+  tipo_paciente: string;
+  // Campos adicionales
+  cama_origen_identificador: string | null;
+  servicio_origen_nombre: string | null;
+  hospital_origen: Hospital;
+  paciente: Paciente;
+}
+
+export async function getDerivados(hospitalId: string): Promise<DerivadoItemExtended[]> {
   interface DerivadoResponse {
     paciente_id: string;
     nombre: string;
@@ -504,15 +453,19 @@ export async function getDerivados(hospitalId: string): Promise<DerivadoItem[]> 
     tiempo_en_lista_min: number;
     hospital_origen_id: string;
     hospital_origen_nombre: string;
+    hospital_origen_codigo?: string;
+    cama_origen_identificador?: string | null;
+    servicio_origen_nombre?: string | null;
     motivo_derivacion: string;
     tipo_paciente: string;
     complejidad: string;
     diagnostico: string;
+    edad?: number;
+    sexo?: string;
   }
   
   const response = await fetchApi<DerivadoResponse[]>(`/hospitales/${hospitalId}/derivados`);
   
-  // Convertir al formato esperado por el frontend
   return response.map(d => ({
     paciente_id: d.paciente_id,
     nombre: d.nombre,
@@ -527,19 +480,148 @@ export async function getDerivados(hospitalId: string): Promise<DerivadoItem[]> 
     diagnostico: d.diagnostico,
     complejidad: d.complejidad,
     tipo_paciente: d.tipo_paciente,
+    // Campos adicionales
+    cama_origen_identificador: d.cama_origen_identificador || null,
+    servicio_origen_nombre: d.servicio_origen_nombre || null,
     hospital_origen: {
       id: d.hospital_origen_id,
-      nombre: d.hospital_origen_nombre
-    } as any,
+      nombre: d.hospital_origen_nombre,
+      codigo: d.hospital_origen_codigo
+    } as Hospital,
     paciente: {
       id: d.paciente_id,
       nombre: d.nombre,
       run: d.run,
       diagnostico: d.diagnostico,
-      complejidad: d.complejidad as any,
-      tipo_paciente: d.tipo_paciente as any
-    } as any
+      complejidad: d.complejidad as unknown as ComplejidadEnum,
+      complejidad_requerida: d.complejidad as unknown as ComplejidadEnum,
+      tipo_paciente: d.tipo_paciente as unknown as TipoPacienteEnum,
+      edad: d.edad,
+      sexo: d.sexo as unknown as SexoEnum
+    } as Paciente
   }));
+}
+
+// ============================================
+// SOLICITAR DERIVACIÓN 
+// ============================================
+
+export interface SolicitarDerivacionRequest {
+  hospital_destino_id: string;
+  motivo: string;
+}
+
+export async function solicitarDerivacion(
+  pacienteId: string,
+  data: SolicitarDerivacionRequest
+): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/derivaciones/${pacienteId}/solicitar`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+// ============================================
+// DERIVADOS ENVIADOS (A OTROS HOSPITALES)
+// ============================================
+
+export interface DerivadoEnviadoItem {
+  paciente_id: string;
+  nombre: string;
+  run: string;
+  hospital_destino_id: string;
+  hospital_destino_nombre: string;
+  motivo_derivacion: string;
+  estado_derivacion: string;
+  cama_origen_identificador: string | null;
+  tiempo_en_proceso_min: number;
+  complejidad: string;
+  diagnostico: string;
+}
+
+export async function getDerivadosEnviados(hospitalId: string): Promise<DerivadoEnviadoItem[]> {
+  return fetchApi<DerivadoEnviadoItem[]>(`/derivaciones/hospital/${hospitalId}/enviados`);
+}
+
+export async function cancelarDerivacionDesdeOrigen(pacienteId: string): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/derivaciones/${pacienteId}/cancelar-desde-origen`, {
+    method: 'POST'
+  });
+}
+
+// ============================================
+// VERIFICACIÓN DE VIABILIDAD DE DERIVACIÓN
+// ============================================
+
+export interface VerificacionViabilidadDerivacion {
+  es_viable: boolean;
+  mensaje: string;
+  motivos_rechazo: string[];
+  hospital_destino_nombre: string;
+  paciente_id: string;
+}
+
+export async function verificarViabilidadDerivacion(
+  pacienteId: string,
+  hospitalDestinoId: string
+): Promise<VerificacionViabilidadDerivacion> {
+  return fetchApi<VerificacionViabilidadDerivacion>(
+    `/derivaciones/${pacienteId}/verificar-viabilidad/${hospitalDestinoId}`
+  );
+}
+
+// ============================================
+// VERIFICACIÓN DE DISPONIBILIDAD TIPO CAMA
+// ============================================
+
+export interface VerificacionDisponibilidadTipoCama {
+  tiene_tipo_cama: boolean;
+  mensaje: string;
+  paciente_id: string;
+  hospital_id: string;
+}
+
+export async function verificarDisponibilidadTipoCama(
+  pacienteId: string
+): Promise<VerificacionDisponibilidadTipoCama> {
+  return fetchApi<VerificacionDisponibilidadTipoCama>(
+    `/pacientes/${pacienteId}/verificar-disponibilidad-hospital`
+  );
+}
+
+// ============================================
+// BÚSQUEDA DE CAMAS EN LA RED
+// ============================================
+
+export interface CamaDisponibleRed {
+  cama_id: string;
+  cama_identificador: string;
+  hospital_id: string;
+  hospital_nombre: string;
+  hospital_codigo: string;
+  servicio_id: string;
+  servicio_nombre: string;
+  servicio_tipo: string;
+  sala_id: string;
+  sala_numero: number;
+  sala_es_individual: boolean;
+}
+
+export interface ResultadoBusquedaRed {
+  encontradas: boolean;
+  cantidad: number;
+  camas: CamaDisponibleRed[];
+  mensaje: string;
+  paciente_id: string;
+  hospital_origen_id: string;
+}
+
+export async function buscarCamasEnRed(
+  pacienteId: string
+): Promise<ResultadoBusquedaRed> {
+  return fetchApi<ResultadoBusquedaRed>(
+    `/pacientes/${pacienteId}/buscar-camas-red`
+  );
 }
 
 // ============================================
@@ -569,21 +651,24 @@ export async function getEstadisticas(): Promise<EstadisticasGlobales> {
 // UTILIDADES
 // ============================================
 
-export function getDocumentoUrl(filename: string): string {
-  return `${API_BASE}/api/documentos/${filename}`;
+export function getDocumentoUrl(filename: string, forceInline: boolean = true): string {
+  const cleanFilename = filename.includes('/') 
+    ? filename.split('/').pop() 
+    : filename;
+  
+  const url = `${API_BASE}/api/documentos/${encodeURIComponent(cleanFilename || filename)}`;
+  
+  // Añadir parámetro para indicar visualización inline (si el backend lo soporta)
+  return forceInline ? `${url}?inline=true` : url;
 }
 
 export function getWebSocketUrl(): string {
   try {
     const apiUrl = new URL(API_BASE);
     const wsProtocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${wsProtocol}//${apiUrl.host}/ws`;
+    return `${wsProtocol}//${apiUrl.host}/api/ws`;
   } catch {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${wsProtocol}//localhost:8000/ws`;
+    return `${wsProtocol}//localhost:8000/api/ws`;
   }
-}
-
-export function obtenerListaEspera(hospitalId: string) {
-  throw new Error('Function not implemented.');
 }
