@@ -13,6 +13,9 @@ class ConfiguracionSistema(SQLModel, table=True):
     
     Almacena configuraciones que afectan el comportamiento
     del sistema de asignación de camas.
+    
+    NOTA: Los teléfonos de urgencias y ambulatorio están en el modelo Hospital,
+    ya que cada hospital tiene sus propios números.
     """
     __tablename__ = "configuracionsistema"
     

@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { 
   FileText, Check, X, Search, Clock, LogOut, 
   Lock, Unlock, UserPlus, ArrowRightLeft, AlertTriangle,
-  Send, Truck, Wind, Loader2, RefreshCw
+  Send, Truck, Wind, Loader2, RefreshCw,
+  Heart, Gavel, Files, Cross
 } from 'lucide-react';
 import type { Cama, Paciente } from '../../types';
 import { EstadoCamaEnum } from '../../types';
@@ -38,7 +39,7 @@ interface BotonConfig {
 
 // ============================================
 // CONFIGURACIÓN DECLARATIVA DE BOTONES
-// MODIFICADO: Quitados botones "Ver" y "Reevaluar" - ahora se accede desde la tarjeta
+// MODIFICADO: Agregado estado FALLECIDO
 // ============================================
 
 const BOTONES_CONFIG: Record<string, BotonConfig[]> = {
@@ -48,7 +49,6 @@ const BOTONES_CONFIG: Record<string, BotonConfig[]> = {
     { key: 'cancelar', tipo: 'danger', icono: X, texto: 'Cancelar', accion: 'cancelarTraslado', usaEntrante: true }
   ],
   [EstadoCamaEnum.CAMA_EN_ESPERA]: [
-    // El botón "Buscar cama" tiene condición especial: no mostrar si está esperando oxígeno
     { key: 'buscar', tipo: 'primary', icono: Search, texto: 'Nueva cama', accion: 'buscarCama', condicional: 'noEsperandoOxigeno' }
   ],
   [EstadoCamaEnum.TRASLADO_SALIENTE]: [
@@ -76,6 +76,12 @@ const BOTONES_CONFIG: Record<string, BotonConfig[]> = {
   [EstadoCamaEnum.DERIVACION_CONFIRMADA]: [
     { key: 'egreso', tipo: 'success', icono: Truck, texto: 'Confirmar Egreso', accion: 'confirmarEgreso' },
     { key: 'cancelar', tipo: 'danger', icono: X, texto: 'Cancelar', accion: 'cancelarDerivacion' }
+  ],
+  // ============================================
+  // NUEVO: Estado FALLECIDO
+  // ============================================
+  [EstadoCamaEnum.FALLECIDO]: [
+    { key: 'completarEgreso', tipo: 'success', icono: Check, texto: 'Completar Egreso', accion: 'completarEgresoFallecido' }
   ]
 };
 
@@ -87,6 +93,12 @@ const BOTONES_MANUAL: Record<string, BotonConfig[]> = {
     { key: 'asignar', tipo: 'primary', icono: UserPlus, texto: 'Nueva cama', accion: 'asignarManual' },
     { key: 'intercambiar', tipo: 'warning', icono: ArrowRightLeft, texto: 'Intercambiar', accion: 'intercambiar' },
     { key: 'egresar', tipo: 'danger', icono: LogOut, texto: 'Egresar', accion: 'egresarManual' }
+  ],
+  // ============================================
+  // NUEVO: Botón cancelar fallecimiento (SOLO MODO MANUAL)
+  // ============================================
+  [EstadoCamaEnum.FALLECIDO]: [
+    { key: 'cancelarFallecimiento', tipo: 'danger', icono: X, texto: 'Cancelar', accion: 'cancelarFallecimiento' }
   ]
 };
 
@@ -104,14 +116,24 @@ const estilosBotones: Record<string, string> = {
 
 // ============================================
 // ESTADOS QUE PERMITEN REEVALUACIÓN
+// MODIFICADO: No permitir reevaluación en estado FALLECIDO
 // ============================================
 
 const ESTADOS_CON_REEVALUACION = [
   EstadoCamaEnum.OCUPADA,
   EstadoCamaEnum.CAMA_EN_ESPERA,
-  EstadoCamaEnum.ALTA_SUGERIDA,
-  EstadoCamaEnum.TRASLADO_ENTRANTE
+  EstadoCamaEnum.ALTA_SUGERIDA
 ];
+
+// ============================================
+// ICONOS DE CASOS ESPECIALES
+// ============================================
+
+const ICONOS_CASOS_ESPECIALES: Record<string, { icono: React.ElementType; color: string }> = {
+  'Espera cardiocirugía': { icono: Heart, color: 'text-red-500' },
+  'Socio-judicial': { icono: Gavel, color: 'text-amber-600' },
+  'Socio-sanitario': { icono: Files, color: 'text-blue-500' },
+};
 
 // ============================================
 // COMPONENTE PRINCIPAL
@@ -133,7 +155,18 @@ export function CamaCard({ cama }: CamaCardProps) {
 
   const paciente = cama.paciente;
   const pacienteEntrante = cama.paciente_entrante;
-  const estadoColor = COLORES_ESTADO[cama.estado] || COLORES_ESTADO.libre;
+  
+  // ============================================
+  // COLORES DE ESTADO - INCLUYENDO FALLECIDO
+  // ============================================
+  const getEstadoColor = () => {
+    if (cama.estado === EstadoCamaEnum.FALLECIDO) {
+      return 'bg-gray-700 text-white border-gray-800';
+    }
+    return COLORES_ESTADO[cama.estado] || COLORES_ESTADO.libre;
+  };
+  
+  const estadoColor = getEstadoColor();
 
   // Obtener paciente a mostrar
   const pacienteMostrar = pacienteEntrante || paciente;
@@ -146,11 +179,26 @@ export function CamaCard({ cama }: CamaCardProps) {
                      pacienteMostrar?.derivacion_estado === 'aceptada' ||
                      pacienteMostrar?.derivacion_estado === 'pendiente';
   const esperandoOxigeno = pacienteMostrar?.esperando_evaluacion_oxigeno === true;
+  
+  // ============================================
+  // VERIFICAR SI ES ESTADO FALLECIDO
+  // ============================================
+  const esFallecido = cama.estado === EstadoCamaEnum.FALLECIDO;
 
   // ============================================
   // Verificar si se muestra el botón de reevaluar
+  // No mostrar en estado FALLECIDO
   // ============================================
-  const mostrarBotonReevaluar = pacienteMostrar && ESTADOS_CON_REEVALUACION.includes(cama.estado as EstadoCamaEnum);
+  const mostrarBotonReevaluar = pacienteMostrar && 
+    ESTADOS_CON_REEVALUACION.includes(cama.estado as EstadoCamaEnum) &&
+    !esFallecido;
+
+  // ============================================
+  // Obtener íconos de casos especiales para mostrar
+  // ============================================
+  const iconosCasosEspeciales = casosEspeciales
+    .map((caso: string) => ICONOS_CASOS_ESPECIALES[caso])
+    .filter(Boolean);
 
   // ============================================
   // FUNCIÓN PARA INICIAR BÚSQUEDA DE CAMA CON VERIFICACIÓN
@@ -239,6 +287,40 @@ export function CamaCard({ cama }: CamaCardProps) {
     }
   };
 
+  // ============================================
+  // HANDLER PARA COMPLETAR EGRESO FALLECIDO
+  // ============================================
+  const handleCompletarEgresoFallecido = async () => {
+    if (!paciente?.id) return;
+    
+    try {
+      const resultado = await api.completarEgresoFallecido(paciente.id);
+      showAlert('success', resultado.message || 'Egreso completado');
+      await recargarTodo();
+    } catch (error) {
+      showAlert('error', error instanceof Error ? error.message : 'Error al completar egreso');
+    }
+  };
+
+  // ============================================
+  // HANDLER PARA CANCELAR FALLECIMIENTO (SOLO MODO MANUAL)
+  // ============================================
+  const handleCancelarFallecimiento = async () => {
+    if (!paciente?.id) return;
+    
+    if (!window.confirm('¿Está seguro de cancelar el registro de fallecimiento? Esta acción restaurará al paciente a su estado anterior.')) {
+      return;
+    }
+    
+    try {
+      const resultado = await api.cancelarFallecimiento(paciente.id);
+      showAlert('success', resultado.message || 'Fallecimiento cancelado');
+      await recargarTodo();
+    } catch (error) {
+      showAlert('error', error instanceof Error ? error.message : 'Error al cancelar fallecimiento');
+    }
+  };
+
   // Ejecutar acción según configuración
   const ejecutarAccion = (config: BotonConfig) => {
     const pac = config.usaEntrante ? pacienteEntrante : paciente;
@@ -291,6 +373,15 @@ export function CamaCard({ cama }: CamaCardProps) {
       case 'egresarManual':
         if (pac) actions.handleEgresarManual(pac.id);
         break;
+      // ============================================
+      // NUEVAS ACCIONES PARA FALLECIMIENTO
+      // ============================================
+      case 'completarEgresoFallecido':
+        handleCompletarEgresoFallecido();
+        break;
+      case 'cancelarFallecimiento':
+        handleCancelarFallecimiento();
+        break;
     }
   };
 
@@ -328,17 +419,26 @@ export function CamaCard({ cama }: CamaCardProps) {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={cama.estado === 'libre' ? 'success' : 'default'}>
+            {/* ============================================ */}
+            {/* ÍCONO DE CRUZ PARA ESTADO FALLECIDO */}
+            {/* ============================================ */}
+            {esFallecido && (
+              <div className="p-1 bg-gray-600 rounded-full" title="Paciente fallecido">
+                <Cross className="w-4 h-4 text-white" />
+              </div>
+            )}
+            
+            <Badge variant={cama.estado === 'libre' ? 'success' : esFallecido ? 'default' : 'default'}>
               {formatEstado(cama.estado)}
             </Badge>
             
             {/* ============================================ */}
-            {/* BOTÓN DE REEVALUAR - Ícono en esquina */}
+            {/* BOTÓN DE REEVALUAR - No mostrar en fallecido */}
             {/* ============================================ */}
             {mostrarBotonReevaluar && (
               <button
                 onClick={handleClickReevaluar}
-                className="p-1.5 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors"
+                className="p-1.5 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors border-2 border-blue-300 shadow-sm"
                 title="Reevaluar paciente"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -348,21 +448,46 @@ export function CamaCard({ cama }: CamaCardProps) {
         </div>
 
         {/* Badges especiales */}
-        {(tieneCasosEspeciales || esDerivado || esperandoOxigeno) && (
+        {(tieneCasosEspeciales || esDerivado || esperandoOxigeno || esFallecido) && (
           <div className="flex flex-wrap gap-1 mb-2">
-            {tieneCasosEspeciales && (
+            {/* ============================================ */}
+            {/* BADGE DE FALLECIDO */}
+            {/* ============================================ */}
+            {esFallecido && (
+              <Badge variant="default" className="bg-gray-600 text-white">
+                <Cross className="w-3 h-3 mr-1" />
+                Fallecido
+              </Badge>
+            )}
+            
+            {/* Íconos de casos especiales */}
+            {iconosCasosEspeciales.length > 0 && !esFallecido && (
+              <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-100 rounded-full border border-amber-300">
+                {iconosCasosEspeciales.map((config: { icono: React.ElementType; color: string }, idx: number) => {
+                  const IconComponent = config.icono;
+                  return (
+                    <IconComponent 
+                      key={idx} 
+                      className={`w-4 h-4 ${config.color}`} 
+                      title={casosEspeciales[idx]}
+                    />
+                  );
+                })}
+              </div>
+            )}
+            {tieneCasosEspeciales && iconosCasosEspeciales.length === 0 && !esFallecido && (
               <Badge variant="warning">
                 <AlertTriangle className="w-3 h-3 mr-1" />
                 Caso Especial
               </Badge>
             )}
-            {esDerivado && (
+            {esDerivado && !esFallecido && (
               <Badge variant="purple">
                 <Send className="w-3 h-3 mr-1" />
                 Derivado
               </Badge>
             )}
-            {esperandoOxigeno && (
+            {esperandoOxigeno && !esFallecido && (
               <Badge variant="info">
                 <Wind className="w-3 h-3 mr-1" />
                 Evaluando O₂
@@ -373,25 +498,31 @@ export function CamaCard({ cama }: CamaCardProps) {
 
         {/* Info paciente - Clickeable para abrir modal */}
         {pacienteMostrar && (
-          <div className="text-sm space-y-1 mb-3">
+          <div className={`text-sm space-y-1 mb-3 ${esFallecido ? 'text-gray-300' : ''}`}>
             <p className="font-medium truncate">{pacienteMostrar.nombre}</p>
             <p className="text-xs opacity-80">RUN: {pacienteMostrar.run}</p>
             <div className="flex gap-2 text-xs">
               <span>{pacienteMostrar.edad} años</span>
               <span>•</span>
               <span>{formatComplejidad(pacienteMostrar.complejidad_requerida || pacienteMostrar.complejidad || 'ninguna')}</span>
-              {pacienteMostrar.tipo_aislamiento && pacienteMostrar.tipo_aislamiento !== 'ninguno' && (
+              {pacienteMostrar.tipo_aislamiento && pacienteMostrar.tipo_aislamiento !== 'ninguno' && !esFallecido && (
                 <>
                   <span>•</span>
                   <span className="text-red-600">{formatTipoAislamiento(pacienteMostrar.tipo_aislamiento)}</span>
                 </>
               )}
             </div>
+            {/* Mostrar causa de fallecimiento si está disponible */}
+            {esFallecido && pacienteMostrar.causa_fallecimiento && (
+              <p className="text-xs text-gray-400 mt-1">
+                Causa: {pacienteMostrar.causa_fallecimiento}
+              </p>
+            )}
           </div>
         )}
 
         {/* Mensaje estado - Especial para evaluación de oxígeno */}
-        {esperandoOxigeno ? (
+        {esperandoOxigeno && !esFallecido ? (
           <div className="text-xs italic mb-2 p-2 bg-cyan-100 rounded border border-cyan-300 text-cyan-800">
             <div className="flex items-center gap-1">
               <Wind className="w-3 h-3" />
@@ -400,6 +531,13 @@ export function CamaCard({ cama }: CamaCardProps) {
             <p className="mt-1 text-cyan-700">
               Esperando confirmación antes de buscar nueva cama
             </p>
+          </div>
+        ) : esFallecido ? (
+          <div className="text-xs italic mb-2 p-2 bg-gray-600 rounded border border-gray-500 text-gray-200">
+            <div className="flex items-center gap-1">
+              <Cross className="w-3 h-3" />
+              <span className="font-medium">Cuidados postmortem en curso</span>
+            </div>
           </div>
         ) : cama.mensaje_estado ? (
           <p className="text-xs italic mb-2 opacity-80">{cama.mensaje_estado}</p>
@@ -440,7 +578,7 @@ export function CamaCard({ cama }: CamaCardProps) {
         )}
 
         {/* Botón omitir pausa de oxígeno */}
-        {esperandoOxigeno && paciente && (
+        {esperandoOxigeno && paciente && !esFallecido && (
           <button
             onClick={(e) => {
               e.stopPropagation();

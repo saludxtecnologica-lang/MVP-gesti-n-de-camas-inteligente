@@ -25,6 +25,7 @@ def calcular_estadisticas_camas(camas: List[Any]) -> Dict[str, int]:
         "traslado_entrante": 0,
         "en_limpieza": 0,
         "bloqueadas": 0,
+        "fallecido": 0,
     }
     
     for cama in camas:
@@ -36,10 +37,38 @@ def calcular_estadisticas_camas(camas: List[Any]) -> Dict[str, int]:
             stats["en_limpieza"] += 1
         elif cama.estado == EstadoCamaEnum.TRASLADO_ENTRANTE:
             stats["traslado_entrante"] += 1
+        elif cama.estado == EstadoCamaEnum.FALLECIDO:
+            stats["fallecido"] += 1
+            stats["ocupadas"] += 1
         elif cama.estado in ESTADOS_CAMA_OCUPADA:
             stats["ocupadas"] += 1
     
     return stats
+
+
+def calcular_tiempo_restante_timer(
+    tiempo_horas: Optional[int],
+    inicio: Optional[datetime]
+) -> Optional[int]:
+    """
+    Calcula el tiempo restante de un timer en segundos.
+    
+    Args:
+        tiempo_horas: Duración total del timer en horas
+        inicio: Fecha/hora de inicio del timer
+    
+    Returns:
+        Segundos restantes o None si no hay timer activo
+    """
+    if not tiempo_horas or not inicio:
+        return None
+    
+    ahora = datetime.utcnow()
+    tiempo_total_segundos = tiempo_horas * 3600
+    tiempo_transcurrido = (ahora - inicio).total_seconds()
+    tiempo_restante = tiempo_total_segundos - tiempo_transcurrido
+    
+    return max(0, int(tiempo_restante))
 
 
 def crear_paciente_response(paciente: Any) -> Dict[str, Any]:
@@ -53,6 +82,19 @@ def crear_paciente_response(paciente: Any) -> Dict[str, Any]:
         Diccionario con datos del paciente
     """
     from app.schemas.paciente import PacienteResponse
+    
+    # ============================================
+    # CALCULAR TIEMPOS RESTANTES DE TIMERS
+    # ============================================
+    observacion_tiempo_restante = calcular_tiempo_restante_timer(
+        getattr(paciente, 'observacion_tiempo_horas', None),
+        getattr(paciente, 'observacion_inicio', None)
+    )
+    
+    monitorizacion_tiempo_restante = calcular_tiempo_restante_timer(
+        getattr(paciente, 'monitorizacion_tiempo_horas', None),
+        getattr(paciente, 'monitorizacion_inicio', None)
+    )
     
     return PacienteResponse(
         id=paciente.id,
@@ -80,6 +122,8 @@ def crear_paciente_response(paciente: Any) -> Dict[str, Any]:
         derivacion_motivo=paciente.derivacion_motivo,
         derivacion_estado=paciente.derivacion_estado,
         alta_solicitada=paciente.alta_solicitada,
+        origen_servicio_nombre=getattr(paciente, 'origen_servicio_nombre', None),
+        servicio_destino=getattr(paciente, 'servicio_destino', None),
         created_at=paciente.created_at,
         updated_at=paciente.updated_at,
         requerimientos_no_definen=safe_json_loads(paciente.requerimientos_no_definen),
@@ -92,8 +136,25 @@ def crear_paciente_response(paciente: Any) -> Dict[str, Any]:
         motivo_monitorizacion=paciente.motivo_monitorizacion,
         justificacion_monitorizacion=paciente.justificacion_monitorizacion,
         procedimiento_invasivo=paciente.procedimiento_invasivo,
+        preparacion_quirurgica_detalle=getattr(paciente, 'preparacion_quirurgica_detalle', None),
         documento_adjunto=paciente.documento_adjunto,
         esperando_evaluacion_oxigeno=paciente.esperando_evaluacion_oxigeno,
+        # ============================================
+        # CAMPOS DE FALLECIMIENTO
+        # ============================================
+        fallecido=getattr(paciente, 'fallecido', False) or False,
+        causa_fallecimiento=getattr(paciente, 'causa_fallecimiento', None),
+        fallecido_at=getattr(paciente, 'fallecido_at', None),
+        # ============================================
+        # CAMPOS DE TIMERS (con cálculo de tiempo restante)
+        # ============================================
+        observacion_tiempo_horas=getattr(paciente, 'observacion_tiempo_horas', None),
+        observacion_inicio=getattr(paciente, 'observacion_inicio', None),
+        observacion_tiempo_restante=observacion_tiempo_restante,
+        
+        monitorizacion_tiempo_horas=getattr(paciente, 'monitorizacion_tiempo_horas', None),
+        monitorizacion_inicio=getattr(paciente, 'monitorizacion_inicio', None),
+        monitorizacion_tiempo_restante=monitorizacion_tiempo_restante,
     )
 
 

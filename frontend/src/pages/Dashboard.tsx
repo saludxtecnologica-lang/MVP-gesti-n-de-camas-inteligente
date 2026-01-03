@@ -1,11 +1,101 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { CamaCard } from '../components/cama';
 import { Spinner } from '../components/common';
+import { Volume2, VolumeX } from 'lucide-react';
 
 export function Dashboard() {
-  const { camas, loading, dataVersion, wsConnected } = useApp();
+  const { 
+    hospitales, 
+    hospitalSeleccionado, 
+    camas,
+    listaEspera,
+    derivados,
+    configuracion,
+    loading,
+    wsConnected,
+    dataVersion,
+    setHospitalSeleccionado,
+    recargarTodo,
+    showAlert,
+    // TTS
+    servicioSeleccionadoId,
+    setServicioSeleccionadoId,
+    ttsHabilitado,
+    setTtsHabilitado,
+    ttsDisponible,
+    testTts
+  } = useApp();
+
   const [filtroServicio, setFiltroServicio] = useState<string>('todos');
+
+  // ============================================
+  // SINCRONIZAR FILTRO CON TTS
+  // ============================================
+  useEffect(() => {
+    // Cuando cambia el filtro de servicio, actualizar el contexto TTS
+    // - "todos" o vacío = vista global (no reproducir TTS)
+    // - un nombre de servicio = vista específica (reproducir TTS)
+    
+    if (!filtroServicio || filtroServicio === 'todos' || filtroServicio === '') {
+      setServicioSeleccionadoId(null);
+    } else {
+      // Usamos el nombre del servicio como identificador
+      setServicioSeleccionadoId(filtroServicio);
+    }
+  }, [filtroServicio, setServicioSeleccionadoId]);
+
+  // ============================================
+  // COMPONENTE INDICADOR TTS
+  // ============================================
+  const TTSIndicator = () => {
+    const enVistaGlobal = !servicioSeleccionadoId;
+    
+    return (
+      <div className="flex items-center gap-2">
+        {/* Botón de activar/desactivar */}
+        <button
+          onClick={() => setTtsHabilitado(!ttsHabilitado)}
+          className={`
+            flex items-center gap-1.5 px-2 py-1 rounded-md text-sm
+            transition-colors duration-200
+            ${ttsHabilitado 
+              ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }
+          `}
+          title={ttsHabilitado ? 'Desactivar notificaciones de voz' : 'Activar notificaciones de voz'}
+        >
+          {ttsHabilitado ? (
+            <Volume2 className="w-4 h-4" />
+          ) : (
+            <VolumeX className="w-4 h-4" />
+          )}
+          <span className="hidden sm:inline">
+            {ttsHabilitado ? 'Voz activa' : 'Voz inactiva'}
+          </span>
+        </button>
+        
+        {/* Indicador de vista global */}
+        {enVistaGlobal && ttsHabilitado && (
+          <span className="text-xs text-amber-600">
+            (seleccione servicio)
+          </span>
+        )}
+        
+        {/* Botón de prueba - solo visible si está habilitado y hay servicio */}
+        {ttsHabilitado && ttsDisponible && !enVistaGlobal && (
+          <button
+            onClick={testTts}
+            className="p-1 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+            title="Probar notificación de voz"
+          >
+            🔊
+          </button>
+        )}
+      </div>
+    );
+  };
 
   // Obtener servicios únicos
   const servicios = useMemo(() => {
@@ -105,7 +195,7 @@ export function Dashboard() {
     <div className="space-y-4">
       {/* Stats y filtros */}
       <div className="bg-white rounded-lg shadow p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           {/* Estadísticas */}
           <div className="flex gap-6">
             <div className="text-center">
@@ -130,8 +220,11 @@ export function Dashboard() {
             </div>
           </div>
 
-          {/* Indicador de conexión y filtro */}
-          <div className="flex items-center gap-4">
+          {/* Indicadores y controles */}
+          <div className="flex items-center gap-4 flex-wrap">
+            {/* Indicador TTS */}
+            <TTSIndicator />
+            
             {/* Indicador de WebSocket */}
             <div className="flex items-center gap-1.5">
               <div 

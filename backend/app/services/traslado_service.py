@@ -4,6 +4,7 @@ Gestiona la lógica de traslados de pacientes.
 
 ACTUALIZADO: Incluye verificación de compatibilidad al completar traslado
 y función para cancelar traslados confirmados.
+ACTUALIZADO TTS: Incluye broadcast con datos TTS para notificaciones audibles.
 
 Ubicación: app/services/traslado_service.py
 """
@@ -12,6 +13,7 @@ from sqlmodel import Session
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+import asyncio
 
 from app.models.paciente import Paciente
 from app.models.cama import Cama
@@ -36,6 +38,9 @@ from app.services.compatibilidad_service import (
     verificar_y_actualizar_sexo_sala_al_egreso,
     verificar_y_actualizar_sexo_sala_al_ingreso,
 )
+
+# NUEVO IMPORT TTS
+from app.core.eventos_audibles import crear_evento_traslado_completado
 
 logger = logging.getLogger("gestion_camas.traslado")
 
@@ -91,12 +96,15 @@ class TrasladoService:
         ACTUALIZADO: Incluye verificación de compatibilidad al llegar.
         Si el paciente no es compatible con la cama, queda en CAMA_EN_ESPERA.
         
+        ACTUALIZADO TTS: Emite evento con datos para notificación audible.
+        
         Flujo según documento:
         1. Paciente ocupa cama destino (OCUPADA o CAMA_EN_ESPERA según compatibilidad)
         2. Cama origen (si existe) pasa a EN_LIMPIEZA
         3. Paciente sale de lista de espera
         4. Si era derivado: también libera cama origen de derivación
         5. Se actualiza el sexo de las salas afectadas
+        6. Se emite evento TTS
         
         Args:
             paciente_id: ID del paciente
@@ -126,6 +134,31 @@ class TrasladoService:
         
         cama_origen_id = paciente.cama_id
         es_derivado = paciente.derivacion_estado == "aceptada" or paciente.tipo_paciente == TipoPacienteEnum.DERIVADO
+        
+        # ============================================
+        # GUARDAR INFO PARA TTS ANTES DE MODIFICAR
+        # ============================================
+        cama_origen = None
+        cama_origen_identificador = None
+        servicio_origen_id = None
+        servicio_origen_nombre = None
+        servicio_destino_id = None
+        servicio_destino_nombre = None
+        hospital_id = paciente.hospital_id
+        
+        # Obtener info de cama origen
+        if cama_origen_id:
+            cama_origen = self.cama_repo.obtener_por_id(cama_origen_id)
+            if cama_origen:
+                cama_origen_identificador = cama_origen.identificador
+                if cama_origen.sala and cama_origen.sala.servicio:
+                    servicio_origen_id = cama_origen.sala.servicio.nombre  # Usamos nombre como ID
+                    servicio_origen_nombre = cama_origen.sala.servicio.nombre
+        
+        # Obtener info de servicio destino
+        if cama_destino.sala and cama_destino.sala.servicio:
+            servicio_destino_id = cama_destino.sala.servicio.nombre
+            servicio_destino_nombre = cama_destino.sala.servicio.nombre
         
         # ============================================
         # VERIFICAR COMPATIBILIDAD AL LLEGAR
@@ -219,6 +252,44 @@ class TrasladoService:
         
         logger.info(f"Traslado completado: {paciente.nombre} -> {cama_destino.identificador}")
         
+        # ============================================
+        # BROADCAST TTS
+        # ============================================
+        try:
+            evento_tts = crear_evento_traslado_completado(
+                cama_origen_identificador=cama_origen_identificador or "origen",
+                paciente_nombre=paciente.nombre,
+                servicio_origen_id=servicio_origen_id,
+                servicio_origen_nombre=servicio_origen_nombre or "origen",
+                servicio_destino_id=servicio_destino_id,
+                servicio_destino_nombre=servicio_destino_nombre or "destino",
+                hospital_id=hospital_id,
+                paciente_id=str(paciente.id)
+            )
+            
+            # Broadcast asíncrono
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(manager.broadcast(evento_tts))
+            except RuntimeError:
+                # Si no hay event loop, crear uno nuevo
+                asyncio.run(manager.broadcast(evento_tts))
+                
+            logger.info(f"Evento TTS de traslado completado emitido")
+        except Exception as e:
+            logger.warning(f"Error emitiendo evento TTS: {e}")
+            # Fallback sin TTS
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(manager.broadcast({
+                    "tipo": "traslado_completado",
+                    "hospital_id": hospital_id,
+                    "reload": True,
+                    "play_sound": True
+                }))
+            except:
+                pass
+        
         return ResultadoTraslado(
             exito=True,
             mensaje=mensaje,
@@ -279,14 +350,14 @@ class TrasladoService:
                 cama_destino_id = cama_destino.id
                 cama_destino.estado = EstadoCamaEnum.LIBRE
                 cama_destino.mensaje_estado = None
+                cama_destino.paciente_derivado_id = None
                 cama_destino.cama_asignada_destino = None
                 cama_destino.estado_updated_at = datetime.utcnow()
                 self.session.add(cama_destino)
-                logger.debug(f"Cama destino {cama_destino.identificador} liberada")
         
-        # Actualizar cama origen a CAMA_EN_ESPERA
+        # Restaurar cama origen a CAMA_EN_ESPERA
         cama_origen.estado = EstadoCamaEnum.CAMA_EN_ESPERA
-        cama_origen.mensaje_estado = "Traslado cancelado - Paciente requiere nueva cama"
+        cama_origen.mensaje_estado = "Paciente requiere nueva cama"
         cama_origen.cama_asignada_destino = None
         cama_origen.estado_updated_at = datetime.utcnow()
         self.session.add(cama_origen)
@@ -294,42 +365,32 @@ class TrasladoService:
         # Actualizar paciente
         paciente.cama_destino_id = None
         paciente.en_lista_espera = False
+        paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
         paciente.timestamp_lista_espera = None
-        paciente.requiere_nueva_cama = True  # Mantener flag para buscar nueva cama
-        paciente.updated_at = datetime.utcnow()
-        self.session.add(paciente)
+        paciente.prioridad_calculada = 0.0
+        paciente.requiere_nueva_cama = True  # Listo para buscar de nuevo
         
+        self.session.add(paciente)
         self.session.commit()
         
         logger.info(f"Traslado confirmado cancelado para {paciente.nombre}")
         
         return ResultadoTraslado(
             exito=True,
-            mensaje="Traslado cancelado. Paciente permanece en cama de origen y requiere nueva cama.",
+            mensaje="Traslado cancelado - paciente puede buscar nueva cama",
             paciente_id=paciente_id,
-            cama_origen_id=cama_origen.id,
-            cama_destino_id=cama_destino_id
+            cama_origen_id=str(cama_origen.id),
+            cama_destino_id=str(cama_destino_id) if cama_destino_id else None
         )
     
     def cancelar_traslado(self, paciente_id: str) -> ResultadoTraslado:
         """
-        Cancela un traslado pendiente.
+        Cancela un traslado pendiente desde la cama destino.
         
-        Flujos según documento:
-        
-        1. Paciente nuevo sin cama (urgencia/ambulatorio):
-           - Eliminar de lista de espera
-           - Eliminar paciente del sistema
-        
-        2. Paciente hospitalizado (tiene cama origen):
-           - Volver a cama en espera (CAMA_EN_ESPERA)
-           - Remover de lista de espera
-           - Liberar cama destino
-        
-        3. Paciente derivado:
-           - Volver a lista de derivados (derivacion_estado = "pendiente")
-           - Cama origen pasa a ESPERA_DERIVACION
-           - Liberar cama destino
+        Flujo:
+        1. Cama destino vuelve a LIBRE
+        2. Si tiene cama origen, esta vuelve a OCUPADA
+        3. Paciente vuelve a su cama origen
         
         Args:
             paciente_id: ID del paciente
@@ -337,126 +398,14 @@ class TrasladoService:
         Returns:
             Resultado de la cancelación
         """
-        logger.info(f"Iniciando cancelar_traslado para paciente_id: {paciente_id}")
-        
-        paciente = self.paciente_repo.obtener_por_id(paciente_id)
-        if not paciente:
-            logger.error(f"Paciente no encontrado: {paciente_id}")
-            raise PacienteNotFoundError(paciente_id)
-        
-        logger.debug(
-            f"Paciente encontrado: {paciente.nombre}, "
-            f"cama_id: {paciente.cama_id}, cama_destino_id: {paciente.cama_destino_id}, "
-            f"derivacion_estado: {paciente.derivacion_estado}"
-        )
-        
-        es_derivado = paciente.derivacion_estado == "aceptada"
-        tiene_cama_origen = paciente.cama_id is not None
-        tiene_cama_destino = paciente.cama_destino_id is not None
-        
-        # IMPORTANTE: Remover de cola de prioridad en memoria
-        self._remover_de_cola_memoria(paciente)
-        
-        # Liberar cama destino si existe
-        if tiene_cama_destino:
-            cama_destino = self.cama_repo.obtener_por_id(paciente.cama_destino_id)
-            if cama_destino:
-                cama_destino.estado = EstadoCamaEnum.LIBRE
-                cama_destino.mensaje_estado = None
-                cama_destino.paciente_derivado_id = None
-                cama_destino.cama_asignada_destino = None
-                cama_destino.estado_updated_at = datetime.utcnow()
-                self.session.add(cama_destino)
-                logger.debug(f"Cama destino {cama_destino.identificador} liberada")
-        
-        if es_derivado:
-            # FLUJO DERIVADO: Usar servicio de derivación
-            from app.services.derivacion_service import DerivacionService
-            derivacion_service = DerivacionService(self.session)
-            resultado = derivacion_service.cancelar_derivacion_desde_lista_espera(paciente_id)
-            return ResultadoTraslado(
-                exito=True,
-                mensaje=resultado.mensaje,
-                paciente_id=paciente_id
-            )
-        
-        elif tiene_cama_origen:
-            # FLUJO HOSPITALIZADO: Volver a cama en espera
-            cama_origen = self.cama_repo.obtener_por_id(paciente.cama_id)
-            if cama_origen:
-                cama_origen.estado = EstadoCamaEnum.CAMA_EN_ESPERA
-                cama_origen.mensaje_estado = "Paciente requiere nueva cama"
-                cama_origen.cama_asignada_destino = None
-                cama_origen.estado_updated_at = datetime.utcnow()
-                self.session.add(cama_origen)
-                logger.debug(f"Cama origen {cama_origen.identificador} en espera")
-            
-            paciente.cama_destino_id = None
-            paciente.en_lista_espera = False
-            paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-            paciente.timestamp_lista_espera = None
-            paciente.prioridad_calculada = 0.0
-            paciente.requiere_nueva_cama = True
-            
-            self.session.add(paciente)
-            self.session.commit()
-            
-            logger.info(f"Traslado cancelado para {paciente.nombre} - vuelve a cama en espera")
-            
-            return ResultadoTraslado(
-                exito=True,
-                mensaje="Traslado cancelado - paciente puede buscar nueva cama",
-                paciente_id=paciente_id,
-                cama_origen_id=paciente.cama_id
-            )
-        
-        else:
-            # FLUJO SIN CAMA: Eliminar de lista
-            paciente.cama_destino_id = None
-            paciente.en_lista_espera = False
-            paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-            paciente.timestamp_lista_espera = None
-            paciente.prioridad_calculada = 0.0
-            
-            self.session.add(paciente)
-            self.session.commit()
-            
-            logger.info(f"Traslado cancelado para {paciente.nombre} - removido de lista")
-            
-            return ResultadoTraslado(
-                exito=True,
-                mensaje="Paciente removido de lista de espera",
-                paciente_id=paciente_id
-            )
-    
-    def cancelar_traslado_desde_destino(self, paciente_id: str) -> ResultadoTraslado:
-        """
-        Cancela traslado desde la cama de destino.
-        
-        Flujo según documento:
-        El paciente vuelve a la lista de espera con PRIORIDAD MÁXIMA.
-        
-        Args:
-            paciente_id: ID del paciente
-        
-        Returns:
-            Resultado de la cancelación
-        """
-        logger.info(f"Cancelando traslado desde destino para paciente_id: {paciente_id}")
+        logger.info(f"Cancelando traslado para paciente_id: {paciente_id}")
         
         paciente = self.paciente_repo.obtener_por_id(paciente_id)
         if not paciente:
             raise PacienteNotFoundError(paciente_id)
         
         if not paciente.cama_destino_id:
-            raise ValidationError("El paciente no tiene cama destino asignada")
-        
-        #: Verificar si es un paciente derivado que ya egresó del origen
-        if (paciente.derivacion_estado == "aceptada" and 
-            paciente.cama_origen_derivacion_id is None):
-            raise ValidationError(
-                "No se puede cancelar la asignación, el paciente se encuentra en traslado"
-            )
+            raise ValidationError("El paciente no tiene traslado pendiente")
         
         # Liberar cama destino
         cama_destino = self.cama_repo.obtener_por_id(paciente.cama_destino_id)
@@ -468,41 +417,45 @@ class TrasladoService:
             cama_destino.estado_updated_at = datetime.utcnow()
             self.session.add(cama_destino)
         
-        # Devolver a lista de espera con prioridad máxima
+        # Si tiene cama origen, restaurar a OCUPADA
+        if paciente.cama_id:
+            cama_origen = self.cama_repo.obtener_por_id(paciente.cama_id)
+            if cama_origen:
+                cama_origen.estado = EstadoCamaEnum.OCUPADA
+                cama_origen.mensaje_estado = None
+                cama_origen.cama_asignada_destino = None
+                cama_origen.estado_updated_at = datetime.utcnow()
+                self.session.add(cama_origen)
+        
+        # Remover de cola de prioridad
+        self._remover_de_cola_memoria(paciente)
+        
+        # Limpiar destino del paciente
         paciente.cama_destino_id = None
-        paciente.en_lista_espera = True
+        paciente.en_lista_espera = False
         paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-        paciente.prioridad_calculada = 999.0  # Prioridad máxima
+        paciente.timestamp_lista_espera = None
+        paciente.prioridad_calculada = 0.0
         
         self.session.add(paciente)
         self.session.commit()
         
-        # Agregar a cola con prioridad máxima
-        from app.services.asignacion_service import AsignacionService
-        asignacion_service = AsignacionService(self.session)
-        asignacion_service.agregar_a_cola(paciente)
-        
-        logger.info(f"Traslado cancelado desde destino para {paciente.nombre}")
+        logger.info(f"Traslado cancelado para {paciente.nombre}")
         
         return ResultadoTraslado(
             exito=True,
-            mensaje="Traslado cancelado - paciente en lista de espera con prioridad máxima",
+            mensaje="Traslado cancelado",
             paciente_id=paciente_id
         )
     
     def cancelar_traslado_desde_origen(self, paciente_id: str) -> ResultadoTraslado:
         """
-        Cancela traslado desde la cama de origen.
+        Cancela un traslado desde la cama de origen.
         
         Flujo según documento:
-        Para paciente hospitalizado:
-        - Paciente sale de lista de espera
-        - Se elimina asignación de cama destino
-        - Cama origen pasa a CAMA_EN_ESPERA (lista para buscar nuevamente)
-        
-        Para paciente derivado:
-        - Paciente se elimina del hospital destino completamente
-        - Cama origen vuelve a OCUPADA
+        1. Liberar cama destino (vuelve a LIBRE)
+        2. Cama origen vuelve a CAMA_EN_ESPERA (paciente sigue necesitando nueva cama)
+        3. Paciente sale de lista de espera pero mantiene requiere_nueva_cama
         
         Args:
             paciente_id: ID del paciente
@@ -516,16 +469,32 @@ class TrasladoService:
         if not paciente:
             raise PacienteNotFoundError(paciente_id)
         
-        es_derivado = paciente.derivacion_estado == "aceptada"
+        # Verificar que tenga cama asignada (traslado en proceso)
+        if not paciente.cama_id:
+            resultado = ResultadoTraslado(
+                exito=False,
+                mensaje="El paciente no tiene cama de origen",
+                paciente_id=paciente_id
+            )
+            return resultado
         
-        if es_derivado:
-            # Usar el servicio de derivación para cancelar desde origen
-            from app.services.derivacion_service import DerivacionService
-            derivacion_service = DerivacionService(self.session)
-            resultado = derivacion_service.cancelar_derivacion_desde_origen(paciente_id)
+        cama_origen = self.cama_repo.obtener_por_id(paciente.cama_id)
+        if not cama_origen:
             return ResultadoTraslado(
-                exito=True,
-                mensaje=resultado.mensaje,
+                exito=False,
+                mensaje="Cama de origen no encontrada",
+                paciente_id=paciente_id
+            )
+        
+        # Verificar que esté en estado traslado
+        estados_traslado = [
+            EstadoCamaEnum.TRASLADO_SALIENTE,
+            EstadoCamaEnum.TRASLADO_CONFIRMADO
+        ]
+        if cama_origen.estado not in estados_traslado:
+            return ResultadoTraslado(
+                exito=False,
+                mensaje=f"La cama no está en estado de traslado (estado actual: {cama_origen.estado.value})",
                 paciente_id=paciente_id
             )
         

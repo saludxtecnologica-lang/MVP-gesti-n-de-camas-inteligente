@@ -624,6 +624,28 @@ export async function buscarCamasEnRed(
   );
 }
 
+/**
+ * Cancelar búsqueda de cama y volver a la cama actual
+ * Solo para pacientes que tienen cama asignada
+ */
+export async function cancelarYVolverACama(pacienteId: string): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/pacientes/${pacienteId}/cancelar-y-volver`, {
+    method: 'POST'
+  });
+}
+
+/**
+ * Eliminar paciente que no tiene cama del sistema
+ * Solo para pacientes sin cama asignada
+ */
+export async function eliminarPacienteSinCama(pacienteId: string): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/pacientes/${pacienteId}/eliminar`, {
+    method: 'DELETE'
+  });
+}
+
+
+
 // ============================================
 // CONFIGURACIÓN
 // ============================================
@@ -670,5 +692,169 @@ export function getWebSocketUrl(): string {
   } catch {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${wsProtocol}//localhost:8000/api/ws`;
+  }
+}
+
+// ============================================
+// FALLECIMIENTO
+// ============================================
+
+export async function completarEgresoFallecido(pacienteId: string): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/manual/fallecido/${pacienteId}/completar-egreso`, {
+    method: 'POST'
+  });
+}
+
+export async function cancelarFallecimiento(pacienteId: string): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/manual/fallecido/${pacienteId}/cancelar`, {
+    method: 'POST'
+  });
+}
+
+// ============================================
+// Cancelar asignación desde lista de espera
+// ============================================
+
+/**
+ * Cancela la asignación de cama destino de un paciente en lista de espera.
+ * 
+ * Flujo:
+ * - La cama destino queda LIBRE
+ * - El paciente permanece en la lista de espera
+ * - Si tiene cama de origen: cama origen pasa a TRASLADO_SALIENTE
+ * - Si no tiene cama de origen: solo permanece en lista (puede reevaluarse o derivarse)
+ * 
+ * @param pacienteId - ID del paciente
+ * @returns MessageResponse con el resultado
+ */
+export async function cancelarAsignacionDesdeLista(pacienteId: string): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/manual/cancelar-asignacion-lista/${pacienteId}`, {
+    method: 'POST'
+  });
+}
+
+// ============================================
+// NUEVAS FUNCIONES API PARA TELÉFONOS
+// AGREGAR A: src/services/api.ts
+// ============================================
+
+// ============================================
+// TIPOS PARA TELÉFONOS
+// ============================================
+
+export interface ServicioConTelefono {
+  id: string;
+  nombre: string;
+  codigo: string;
+  tipo: string;
+  hospital_id: string;
+  telefono: string | null;
+  total_camas: number;
+  camas_libres: number;
+}
+
+export interface HospitalConTelefonos {
+  id: string;
+  nombre: string;
+  codigo: string;
+  es_central: boolean;
+  telefono_urgencias: string | null;
+  telefono_ambulatorio: string | null;
+  servicios: ServicioConTelefono[];
+}
+
+export interface InfoTrasladoResponse {
+  origen_tipo: string | null;
+  origen_hospital_nombre: string | null;
+  origen_hospital_codigo: string | null;
+  origen_servicio_nombre: string | null;
+  origen_servicio_telefono: string | null;
+  origen_cama_identificador: string | null;
+  destino_servicio_nombre: string | null;
+  destino_servicio_telefono: string | null;
+  destino_cama_identificador: string | null;
+  destino_hospital_nombre: string | null;
+  tiene_cama_origen: boolean;
+  tiene_cama_destino: boolean;
+  en_traslado: boolean;
+}
+
+// ============================================
+// OBTENER TELÉFONOS DE UN HOSPITAL (incluyendo servicios)
+// ============================================
+export async function getTelefonosHospital(hospitalId: string): Promise<HospitalConTelefonos> {
+  return fetchApi<HospitalConTelefonos>(`/hospitales/${hospitalId}/telefonos`);
+}
+
+// ============================================
+// ACTUALIZAR TELÉFONOS DEL HOSPITAL (urgencias/ambulatorio)
+// ============================================
+export async function actualizarTelefonosHospital(
+  hospitalId: string,
+  telefonos: { telefono_urgencias?: string | null; telefono_ambulatorio?: string | null }
+): Promise<MessageResponse> {
+  return fetchApi<MessageResponse>(`/hospitales/${hospitalId}/telefonos`, {
+    method: 'PUT',
+    body: JSON.stringify(telefonos)
+  });
+}
+
+// ============================================
+// OBTENER SERVICIOS CON TELÉFONOS
+// ============================================
+export async function getServiciosConTelefonos(hospitalId: string): Promise<ServicioConTelefono[]> {
+  return fetchApi<ServicioConTelefono[]>(`/hospitales/${hospitalId}/servicios-telefonos`);
+}
+
+// ============================================
+// ACTUALIZAR TELÉFONO DE UN SERVICIO
+// ============================================
+export async function actualizarTelefonoServicio(
+  hospitalId: string,
+  servicioId: string,
+  telefono: string | null
+): Promise<ServicioConTelefono> {
+  return fetchApi<ServicioConTelefono>(`/hospitales/${hospitalId}/servicios/${servicioId}/telefono`, {
+    method: 'PUT',
+    body: JSON.stringify({ telefono })
+  });
+}
+
+// ============================================
+// ACTUALIZAR TODOS LOS TELÉFONOS (BATCH)
+// ============================================
+export interface TelefonosBatchData {
+  hospital: {
+    telefono_urgencias?: string | null;
+    telefono_ambulatorio?: string | null;
+  };
+  servicios: Record<string, string | null>;
+}
+
+export interface TelefonosBatchResponse {
+  success: boolean;
+  message: string;
+  actualizados: string[];
+  errores: string[] | null;
+}
+
+export async function actualizarTelefonosBatch(
+  hospitalId: string,
+  data: TelefonosBatchData
+): Promise<TelefonosBatchResponse> {
+  return fetchApi<TelefonosBatchResponse>(`/hospitales/${hospitalId}/telefonos-batch`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
+// ============================================
+// OBTENER INFORMACIÓN DE TRASLADO DE UN PACIENTE
+// ============================================
+export async function getInfoTrasladoPaciente(pacienteId: string): Promise<InfoTrasladoResponse | null> {
+  try {
+    return await fetchApi<InfoTrasladoResponse>(`/pacientes/${pacienteId}/info-traslado`);
+  } catch {
+    return null;
   }
 }

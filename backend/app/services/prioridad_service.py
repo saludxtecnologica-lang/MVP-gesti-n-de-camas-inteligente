@@ -1,19 +1,33 @@
 """
-Servicio de Prioridad.
+Servicio de Prioridad v3.1
 Gestiona el cálculo de prioridades y las colas de espera.
 
-Sistema de Priorización v2.2:
-- Hospitalizados tienen máxima prioridad (deben ser movidos primero)
-- Dentro de hospitalizados: UCI > UTI > Aislamientos > otros servicios
-- Para destino UTI: todos los servicios > UCI > otros orígenes
-- Boost por tiempo de espera diferenciado según tipo de paciente
+Sistema de Priorización v3.1:
+=============================
+Equilibrio entre Eficiencia de Flujo y Gravedad Clínica
 
-CORREGIDO v2.2:
-- Detección de paciente hospitalizado por cama_id (no solo por tipo_paciente)
-- Un paciente con cama asignada ES hospitalizado, sin importar su tipo_paciente original
-- Manejo robusto de enums vs strings
+COMPONENTES DE PRIORIDAD:
+1. Base_Tipo: Hospitalizado(200) > Urgencia(100) > Derivado(80) > Ambulatorio(60)
+2. Servicio_Origen: UCI(+60) > UTI(+50) > Aislamiento(+40) > Otros(+0)
+3. IVC (Índice de Vulnerabilidad Clínica): Edad granular + monitorización + observación + complejidad + aislamiento
+4. FRC (Factor de Requerimientos Críticos): Drogas vasoactivas + sedación + oxígeno + procedimientos + aspiración
+5. Tiempo_NoLineal: Curvas escalonadas que aceleran con el tiempo
+6. Boost_Rescate: Prioridad máxima (500) si supera umbral de espera
+
+FUNCIONALIDADES PRESERVADAS:
+- Tipo efectivo: Ambulatorio con estabilización clínica = prioridad Urgencia
+- Paciente con cama_id = Hospitalizado (independiente de tipo_paciente original)
+- Lógica especial para destino UTI
+
+CHANGELOG v3.1:
+- Agregado IVC (Índice de Vulnerabilidad Clínica)
+- Agregado FRC (Factor de Requerimientos Críticos) para desempate
+- Tiempo no lineal con fases escalonadas
+- Mecanismo de rescate automático
+- Edad granular (5 categorías en lugar de 3)
+- Uso de datos existentes: monitorización, observación, procedimiento_invasivo
 """
-from typing import Optional, List, Dict, Tuple, Union
+from typing import Optional, List, Dict, Tuple, Union, Set
 from sqlmodel import Session, select
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -38,9 +52,7 @@ logger = logging.getLogger("gestion_camas.prioridad")
 # ============================================
 
 def _normalizar_tipo_paciente(valor: Union[TipoPacienteEnum, str, None]) -> str:
-    """
-    Normaliza el tipo de paciente a string lowercase para comparaciones.
-    """
+    """Normaliza el tipo de paciente a string lowercase para comparaciones."""
     if valor is None:
         return ""
     if hasattr(valor, 'value'):
@@ -49,9 +61,7 @@ def _normalizar_tipo_paciente(valor: Union[TipoPacienteEnum, str, None]) -> str:
 
 
 def _normalizar_complejidad(valor: Union[ComplejidadEnum, str, None]) -> str:
-    """
-    Normaliza la complejidad a string lowercase para comparaciones.
-    """
+    """Normaliza la complejidad a string lowercase para comparaciones."""
     if valor is None:
         return "ninguna"
     if hasattr(valor, 'value'):
@@ -60,9 +70,7 @@ def _normalizar_complejidad(valor: Union[ComplejidadEnum, str, None]) -> str:
 
 
 def _normalizar_edad_categoria(valor: Union[EdadCategoriaEnum, str, None]) -> str:
-    """
-    Normaliza la categoría de edad a string lowercase.
-    """
+    """Normaliza la categoría de edad a string lowercase."""
     if valor is None:
         return ""
     if hasattr(valor, 'value'):
@@ -71,9 +79,7 @@ def _normalizar_edad_categoria(valor: Union[EdadCategoriaEnum, str, None]) -> st
 
 
 def _normalizar_aislamiento(valor: Union[TipoAislamientoEnum, str, None]) -> str:
-    """
-    Normaliza el tipo de aislamiento a string lowercase.
-    """
+    """Normaliza el tipo de aislamiento a string lowercase."""
     if valor is None:
         return "ninguno"
     if hasattr(valor, 'value'):
@@ -81,9 +87,16 @@ def _normalizar_aislamiento(valor: Union[TipoAislamientoEnum, str, None]) -> str
     return str(valor).lower()
 
 
+# ============================================
+# DATACLASS PARA EXPLICACIÓN DE PRIORIDAD
+# ============================================
+
 @dataclass
 class ExplicacionPrioridad:
-    """Desglose del cálculo de prioridad."""
+    """
+    Desglose del cálculo de prioridad v3.1.
+    Incluye todos los componentes del nuevo sistema.
+    """
     puntaje_total: float
     puntaje_tipo: float
     puntaje_complejidad: float
@@ -92,8 +105,17 @@ class ExplicacionPrioridad:
     puntaje_tiempo: float
     puntaje_servicio_origen: float = 0.0
     puntaje_boost_tiempo: float = 0.0
+    # Nuevos campos v3.1
+    puntaje_ivc: float = 0.0
+    puntaje_frc: float = 0.0
+    es_rescate: bool = False
+    tipo_efectivo: str = ""
     detalles: List[str] = field(default_factory=list)
 
+
+# ============================================
+# COLA DE PRIORIDAD
+# ============================================
 
 class ColaPrioridad:
     """
@@ -162,6 +184,10 @@ class ColaPrioridad:
         return sorted(items, key=lambda x: x[1], reverse=True)
 
 
+# ============================================
+# GESTOR GLOBAL DE COLAS
+# ============================================
+
 class GestorColas:
     """Gestor global de colas de prioridad. Mantiene una cola por hospital."""
     
@@ -198,75 +224,75 @@ class GestorColas:
 gestor_colas_global = GestorColas()
 
 
+# ============================================
+# SERVICIO DE PRIORIDAD v3.1
+# ============================================
+
 class PrioridadService:
     """
-    Servicio para cálculo de prioridades v2.2.
+    Servicio para cálculo de prioridades v3.1.
     
     IMPORTANTE: Un paciente se considera HOSPITALIZADO si:
     - tiene cama_id asignada (ya está en una cama del hospital)
-    - O su tipo_paciente es "hospitalizado"
+    - O su tipo_paciente es explícitamente "hospitalizado"
     
-    Esto es crucial porque un paciente que entró por urgencias pero ya tiene
-    cama asignada, ES un paciente hospitalizado para efectos de priorización.
+    IMPORTANTE: Un paciente AMBULATORIO con motivo "estabilizacion_clinica"
+    se trata como URGENCIA para efectos de priorización.
     
-    Sistema de Priorización (orden de importancia):
+    Sistema de Priorización v3.1:
+    =============================
     
-    1. TIPO DE PACIENTE (Hospitalizados primero):
-       - Hospitalizado (con cama): 200 (máxima prioridad - deben moverse primero)
-       - Urgencia (sin cama): 100
+    1. BASE POR TIPO DE PACIENTE (tipo efectivo):
+       - Hospitalizado (con cama): 200 (máxima prioridad)
+       - Urgencia (incluye ambulatorio por estabilización): 100
        - Derivado: 80
-       - Ambulatorio: 60
+       - Ambulatorio (tratamiento): 60
     
-    2. SERVICIO DE ORIGEN (solo para hospitalizados con cama):
+    2. SERVICIO DE ORIGEN (solo hospitalizados):
        - UCI: +60
        - UTI: +50
        - Aislamientos: +40
-       - Otros servicios: +0
+       - Otros: +0
     
-    3. COMPLEJIDAD REQUERIDA:
-       - Alta: +50
-       - Media: +30
-       - Baja: +15
-       - Ninguna: +0
+    3. IVC - ÍNDICE DE VULNERABILIDAD CLÍNICA (NUEVO):
+       - Edad granular: ≥80(+25), 70-79(+20), 60-69(+15), <5(+20), 5-14(+15)
+       - Monitorización activa: +20
+       - Observación activa: +15
+       - Complejidad: UCI(+30), UTI(+20), Baja(+5)
+       - Aislamiento crítico: Aéreo(+20), Amb.protegido(+15), Especial(+10)
+       - Embarazada: +20
+       - Casos especiales: +15
     
-    4. CATEGORÍA DE EDAD:
-       - Adulto mayor: +20
-       - Pediátrico: +15
-       - Adulto: +0
+    4. FRC - FACTOR DE REQUERIMIENTOS CRÍTICOS (NUEVO):
+       - Drogas vasoactivas: +15
+       - Sedación: +12
+       - Oxígeno (cualquier tipo): +10
+       - Procedimiento invasivo/quirúrgico: +10
+       - Aspiración invasiva de secreciones: +10
     
-    5. TIPO DE AISLAMIENTO:
-       - Aéreo: +25
-       - Ambiente protegido: +20
-       - Especial: +15
-       - Gotitas: +10
-       - Contacto: +5
-       - Ninguno: +0
+    5. TIEMPO NO LINEAL (NUEVO):
+       Urgencias:    0-4h(3pts/h), 4-8h(5pts/h), >8h(8pts/h + boost 40)
+       Derivados:    0-12h(2pts/h), 12-24h(4pts/h), >24h(6pts/h + boost 45)
+       Ambulatorios: 0-48h(1pts/h), 48-96h(2pts/h), >96h(4pts/h + boost 50)
     
-    6. TIEMPO EN ESPERA (base + boost):
-       - Base: 2 puntos por hora de espera
-       - Boost Urgencias: +30 si >8 horas
-       - Boost Ambulatorios: +40 si >4 días (5760 min)
-       - Boost Derivados: +35 si >1 día (1440 min)
-    
-    7. CONDICIONES ESPECIALES:
-       - Embarazada: +15
-       - Casos especiales: +10
+    6. MECANISMO DE RESCATE (NUEVO):
+       - Urgencia > 24h: Prioridad fija 500
+       - Derivado > 48h: Prioridad fija 500
+       - Ambulatorio > 7 días: Prioridad fija 500
     """
     
     # ========================================
-    # PESOS POR TIPO DE PACIENTE (usando strings normalizados)
-    # Hospitalizados tienen máxima prioridad
+    # PESOS BASE POR TIPO DE PACIENTE
     # ========================================
     PESO_TIPO = {
-        'hospitalizado': 200,  # Máxima prioridad - mover primero
+        'hospitalizado': 200,
         'urgencia': 100,
         'derivado': 80,
         'ambulatorio': 60,
     }
     
     # ========================================
-    # BONUS POR SERVICIO DE ORIGEN
-    # Solo aplica a pacientes hospitalizados (con cama)
+    # BONUS POR SERVICIO DE ORIGEN (solo hospitalizados)
     # ========================================
     SERVICIOS_UCI = {'uci', 'unidad de cuidados intensivos', 'cuidados intensivos', 'upc'}
     SERVICIOS_UTI = {'uti', 'unidad de tratamiento intensivo', 'intermedio', 'uci intermedia'}
@@ -284,67 +310,148 @@ class PrioridadService:
     
     # ========================================
     # BONUS ESPECIAL PARA DESTINO UTI
-    # Cambia la priorización cuando el destino es UTI
     # ========================================
     BONUS_DESTINO_UTI = {
-        'todos_servicios': 70,  # Pacientes de todos los servicios (no UCI)
-        'uci': 60,              # Pacientes de UCI
-        'otros_origenes': 0,    # Urgencias, derivados, ambulatorios sin cama
+        'todos_servicios': 70,
+        'uci': 60,
+        'otros_origenes': 0,
     }
     
     # ========================================
-    # PESOS POR COMPLEJIDAD REQUERIDA (usando strings normalizados)
+    # IVC - ÍNDICE DE VULNERABILIDAD CLÍNICA
     # ========================================
-    PESO_COMPLEJIDAD = {
-        'alta': 50,
-        'media': 30,
-        'baja': 15,
+    
+    # Edad granular (5 categorías)
+    BONUS_EDAD_GRANULAR = {
+        'muy_mayor': 25,      # ≥80 años
+        'mayor': 20,          # 70-79 años
+        'adulto_mayor': 15,   # 60-69 años
+        'infante': 20,        # <5 años
+        'nino': 15,           # 5-14 años
+        'adulto': 0,          # 15-59 años
+    }
+    
+    # Timers activos
+    BONUS_MONITORIZACION_ACTIVA = 20
+    BONUS_OBSERVACION_ACTIVA = 15
+    
+    # Complejidad (para IVC, separado del peso base)
+    BONUS_COMPLEJIDAD_IVC = {
+        'alta': 30,
+        'media': 20,
+        'baja': 5,
         'ninguna': 0,
     }
     
-    # ========================================
-    # BONUS POR CATEGORÍA DE EDAD (usando strings normalizados)
-    # ========================================
-    BONUS_EDAD = {
-        'adulto_mayor': 20,
-        'adulto mayor': 20,
-        'pediatrico': 15,
-        'pediátrico': 15,
-        'adulto': 0,
-    }
-    
-    # ========================================
-    # BONUS POR TIPO DE AISLAMIENTO (usando strings normalizados)
-    # ========================================
-    BONUS_AISLAMIENTO = {
-        'aereo': 25,
-        'aéreo': 25,
-        'ambiente_protegido': 20,
-        'ambiente protegido': 20,
-        'especial': 15,
-        'gotitas': 10,
-        'contacto': 5,
+    # Aislamiento crítico
+    BONUS_AISLAMIENTO_IVC = {
+        'aereo': 20,
+        'aéreo': 20,
+        'ambiente_protegido': 15,
+        'ambiente protegido': 15,
+        'especial': 10,
+        'gotitas': 5,
+        'contacto': 3,
         'ninguno': 0,
     }
     
+    # Condiciones especiales
+    BONUS_EMBARAZADA = 20
+    BONUS_CASOS_ESPECIALES = 15
+    
     # ========================================
-    # CONFIGURACIÓN DE TIEMPO
+    # FRC - FACTOR DE REQUERIMIENTOS CRÍTICOS
     # ========================================
-    FACTOR_TIEMPO_POR_HORA = 2.0
+    BONUS_REQUERIMIENTOS_CRITICOS = {
+        'drogas_vasoactivas': 15,
+        'sedacion': 12,
+        'oxigeno': 10,
+        'procedimiento_invasivo': 10,
+        'aspiracion_secreciones': 10,
+    }
     
-    # Boost por tiempo de espera según tipo de paciente
-    BOOST_TIEMPO_URGENCIA_HORAS = 8       # 8 horas
-    BOOST_TIEMPO_URGENCIA_PUNTOS = 30
+    # Keywords para detección de requerimientos críticos
+    KEYWORDS_DROGAS_VASOACTIVAS: Set[str] = {
+        'drogas_vasoactivas', 'vasoactivos', 'noradrenalina', 'norepinefrina',
+        'dopamina', 'dobutamina', 'vasopresina', 'adrenalina', 'epinefrina',
+        'dva', 'drogas vasoactivas', 'aminas', 'inotropicos', 'vasopresores'
+    }
     
-    BOOST_TIEMPO_AMBULATORIO_DIAS = 4     # 4 días
-    BOOST_TIEMPO_AMBULATORIO_PUNTOS = 40
+    KEYWORDS_SEDACION: Set[str] = {
+        'sedacion', 'sedación', 'midazolam', 'propofol', 'fentanilo', 'fentanil',
+        'dexmedetomidina', 'ketamina', 'bic_sedacion', 'infusion_sedacion',
+        'sedoanalgesia', 'analgosedacion'
+    }
     
-    BOOST_TIEMPO_DERIVADO_DIAS = 1        # 1 día
-    BOOST_TIEMPO_DERIVADO_PUNTOS = 35
+    KEYWORDS_OXIGENO: Set[str] = {
+        'oxigeno', 'oxígeno', 'o2', 'naricera', 'canula_nasal', 'cánula nasal',
+        'mascarilla', 'venturi', 'multiventuri', 'reservorio', 'mascara_reservorio',
+        'cnaf', 'alto_flujo', 'alto flujo', 'vmni', 'ventilacion_no_invasiva',
+        'vmi', 'ventilacion_mecanica', 'ventilacion_invasiva', 'tubo_endotraqueal',
+        'intubacion', 'soporte_ventilatorio', 'oxigenoterapia'
+    }
+    
+    KEYWORDS_ASPIRACION: Set[str] = {
+        'aspiracion_secreciones', 'aspiración', 'aspiracion', 'aspiracion_invasiva',
+        'traqueostomia', 'traqueostomía', 'tqt', 'tubo_endotraqueal', 'tet',
+        'secreciones_invasivo', 'manejo_via_aerea', 'toilet_bronquial'
+    }
+    
+    KEYWORDS_PROCEDIMIENTO: Set[str] = {
+        'procedimiento_invasivo', 'cirugia', 'cirugía', 'quirurgico', 'quirúrgico',
+        'intervencion', 'intervención', 'operacion', 'operación', 'biopsia',
+        'drenaje', 'puncion', 'punción', 'cateterismo', 'endoscopia'
+    }
+    
+    # ========================================
+    # CONFIGURACIÓN DE TIEMPO NO LINEAL
+    # ========================================
+    
+    # Urgencias: 3 fases
+    TIEMPO_URGENCIA_FASE1_HORAS = 4
+    TIEMPO_URGENCIA_FASE1_PTS = 3
+    TIEMPO_URGENCIA_FASE2_HORAS = 8
+    TIEMPO_URGENCIA_FASE2_PTS = 5
+    TIEMPO_URGENCIA_FASE3_PTS = 8
+    TIEMPO_URGENCIA_BOOST = 40
+    
+    # Derivados: 3 fases
+    TIEMPO_DERIVADO_FASE1_HORAS = 12
+    TIEMPO_DERIVADO_FASE1_PTS = 2
+    TIEMPO_DERIVADO_FASE2_HORAS = 24
+    TIEMPO_DERIVADO_FASE2_PTS = 4
+    TIEMPO_DERIVADO_FASE3_PTS = 6
+    TIEMPO_DERIVADO_BOOST = 45
+    
+    # Ambulatorios: 3 fases
+    TIEMPO_AMBULATORIO_FASE1_HORAS = 48
+    TIEMPO_AMBULATORIO_FASE1_PTS = 1
+    TIEMPO_AMBULATORIO_FASE2_HORAS = 96
+    TIEMPO_AMBULATORIO_FASE2_PTS = 2
+    TIEMPO_AMBULATORIO_FASE3_PTS = 4
+    TIEMPO_AMBULATORIO_BOOST = 50
+    
+    # ========================================
+    # MECANISMO DE RESCATE
+    # ========================================
+    UMBRAL_RESCATE_HORAS = {
+        'urgencia': 24,
+        'derivado': 48,
+        'ambulatorio': 168,  # 7 días
+    }
+    PRIORIDAD_RESCATE = 500
+    
+    # ========================================
+    # CONSTRUCTOR
+    # ========================================
     
     def __init__(self, session: Session):
         self.session = session
         self.paciente_repo = PacienteRepository(session)
+    
+    # ========================================
+    # MÉTODOS DE TIPO EFECTIVO (PRESERVADOS)
+    # ========================================
     
     def _es_paciente_hospitalizado(self, paciente: Paciente) -> bool:
         """
@@ -353,16 +460,10 @@ class PrioridadService:
         Un paciente ES hospitalizado si:
         1. Tiene cama_id asignada (ya está ocupando una cama)
         2. O su tipo_paciente es explícitamente "hospitalizado"
-        
-        Esto es CRÍTICO porque un paciente de urgencias que ya tiene cama
-        asignada, ya está hospitalizado y debe tener prioridad máxima
-        para ser movido.
         """
-        # Si tiene cama asignada, ES hospitalizado
         if paciente.cama_id:
             return True
         
-        # Si su tipo es hospitalizado
         tipo = _normalizar_tipo_paciente(paciente.tipo_paciente)
         if tipo == 'hospitalizado':
             return True
@@ -371,100 +472,90 @@ class PrioridadService:
     
     def _obtener_tipo_efectivo(self, paciente: Paciente) -> str:
         """
-        Obtiene el tipo de paciente EFECTIVO para priorización.
+        Determina el tipo efectivo del paciente para priorización.
         
-        Si el paciente tiene cama asignada, su tipo efectivo es "hospitalizado"
-        sin importar su tipo_paciente original (urgencia, ambulatorio, etc.)
+        REGLAS:
+        1. Si tiene cama asignada → hospitalizado
+        2. Si es ambulatorio con estabilización clínica → urgencia
+        3. En otro caso → tipo original
         """
+        # Si tiene cama asignada, ES hospitalizado
         if self._es_paciente_hospitalizado(paciente):
             return 'hospitalizado'
         
-        return _normalizar_tipo_paciente(paciente.tipo_paciente)
+        tipo = _normalizar_tipo_paciente(paciente.tipo_paciente)
+        
+        # CRÍTICO: Ambulatorio con estabilización = prioridad urgencia
+        if tipo == 'ambulatorio':
+            motivo = getattr(paciente, 'motivo_ingreso_ambulatorio', None)
+            if motivo == 'estabilizacion_clinica':
+                return 'urgencia'
+        
+        return tipo
+    
+    # ========================================
+    # MÉTODOS DE SERVICIO DE ORIGEN (PRESERVADOS)
+    # ========================================
     
     def _clasificar_servicio_origen(self, servicio_nombre: Optional[str]) -> str:
-        """
-        Clasifica el servicio de origen del paciente.
-        
-        Returns:
-            'uci', 'uti', 'aislamiento' o 'otros'
-        """
+        """Clasifica el servicio de origen del paciente."""
         if not servicio_nombre:
             return 'otros'
         
         servicio_lower = servicio_nombre.lower().strip()
         
-        # Verificar si es UCI
         if any(s in servicio_lower for s in self.SERVICIOS_UCI):
             return 'uci'
-        
-        # Verificar si es UTI
         if any(s in servicio_lower for s in self.SERVICIOS_UTI):
             return 'uti'
-        
-        # Verificar si es Aislamiento
         if any(s in servicio_lower for s in self.SERVICIOS_AISLAMIENTO):
             return 'aislamiento'
         
         return 'otros'
     
     def _obtener_servicio_origen(self, paciente: Paciente) -> Optional[str]:
-        """
-        Obtiene el nombre del servicio de origen del paciente.
-        Busca en diferentes atributos según la estructura del modelo.
-        """
-        # Primero: campo explícito de origen
+        """Obtiene el nombre del servicio de origen del paciente."""
         if hasattr(paciente, 'origen_servicio_nombre') and paciente.origen_servicio_nombre:
             return paciente.origen_servicio_nombre
         
         if hasattr(paciente, 'servicio_origen') and paciente.servicio_origen:
             return paciente.servicio_origen
         
-        # Segundo: obtener de la cama actual (relación cargada)
         if hasattr(paciente, 'cama') and paciente.cama:
             if hasattr(paciente.cama, 'sala') and paciente.cama.sala:
                 if hasattr(paciente.cama.sala, 'servicio') and paciente.cama.sala.servicio:
                     return paciente.cama.sala.servicio.nombre
         
-        # Tercero: cargar la cama desde la BD si tiene cama_id
         if paciente.cama_id:
             try:
                 from app.models.cama import Cama
                 cama = self.session.get(Cama, paciente.cama_id)
-                if cama:
-                    # Intentar cargar sala y servicio
-                    if cama.sala_id:
-                        from app.models.sala import Sala
-                        sala = self.session.get(Sala, cama.sala_id)
-                        if sala and sala.servicio_id:
-                            from app.models.servicio import Servicio
-                            servicio = self.session.get(Servicio, sala.servicio_id)
-                            if servicio:
-                                return servicio.nombre
+                if cama and cama.sala_id:
+                    from app.models.sala import Sala
+                    sala = self.session.get(Sala, cama.sala_id)
+                    if sala and sala.servicio_id:
+                        from app.models.servicio import Servicio
+                        servicio = self.session.get(Servicio, sala.servicio_id)
+                        if servicio:
+                            return servicio.nombre
             except Exception as e:
                 logger.debug(f"No se pudo obtener servicio de cama: {e}")
         
         return None
     
     def _obtener_servicio_destino(self, paciente: Paciente) -> Optional[str]:
-        """
-        Obtiene el nombre del servicio de destino del paciente.
-        """
+        """Obtiene el nombre del servicio de destino del paciente."""
         if hasattr(paciente, 'servicio_destino') and paciente.servicio_destino:
             return paciente.servicio_destino
-        
         if hasattr(paciente, 'servicio_destino_nombre') and paciente.servicio_destino_nombre:
             return paciente.servicio_destino_nombre
-        
         return None
     
     def _es_destino_uti(self, paciente: Paciente) -> bool:
-        """
-        Verifica si el destino del paciente es UTI.
-        """
+        """Verifica si el destino del paciente es UTI."""
         servicio_destino = self._obtener_servicio_destino(paciente)
         if not servicio_destino:
             return False
-        
         servicio_lower = servicio_destino.lower().strip()
         return any(s in servicio_lower for s in self.SERVICIOS_UTI)
     
@@ -474,20 +565,7 @@ class PrioridadService:
         servicio_origen: Optional[str],
         es_destino_uti: bool
     ) -> Tuple[float, str]:
-        """
-        Calcula el bonus por servicio de origen.
-        
-        Solo aplica a pacientes HOSPITALIZADOS (con cama asignada).
-        
-        Para destino UTI tiene lógica especial:
-        - Pacientes de todos los servicios (no UCI) tienen mayor prioridad
-        - Luego pacientes de UCI
-        - Luego otros orígenes (urgencias, derivados, ambulatorios sin cama)
-        
-        Returns:
-            Tuple de (puntaje, descripción)
-        """
-        # Solo los hospitalizados reciben bonus de servicio
+        """Calcula el bonus por servicio de origen."""
         es_hospitalizado = self._es_paciente_hospitalizado(paciente)
         tipo_servicio = self._clasificar_servicio_origen(servicio_origen)
         
@@ -504,7 +582,7 @@ class PrioridadService:
                 return (self.BONUS_DESTINO_UTI['otros_origenes'],
                         "Origen externo sin cama (destino UTI): +0")
         
-        # Caso normal: solo hospitalizados reciben bonus
+        # Caso normal
         if not es_hospitalizado:
             return (0, "")
         
@@ -517,46 +595,283 @@ class PrioridadService:
         
         return (bonus, descripcion)
     
-    def _calcular_boost_tiempo(self, paciente: Paciente) -> Tuple[float, str]:
+    # ========================================
+    # NUEVOS MÉTODOS v3.1: IVC
+    # ========================================
+    
+    def _calcular_ivc(self, paciente: Paciente) -> Tuple[float, List[str]]:
         """
-        Calcula el boost adicional por tiempo de espera según el tipo de paciente ORIGINAL.
+        Calcula el Índice de Vulnerabilidad Clínica (IVC).
         
-        Nota: Usa el tipo_paciente original (no el efectivo) porque el boost
-        es para compensar a pacientes que llevan mucho tiempo esperando
-        según su canal de entrada original.
-        
-        - Urgencias: +30 puntos si >8 horas de espera
-        - Ambulatorios: +40 puntos si >4 días de espera
-        - Derivados: +35 puntos si >1 día de espera
+        Componentes:
+        - Edad granular
+        - Monitorización activa
+        - Observación activa
+        - Complejidad
+        - Aislamiento crítico
+        - Embarazada
+        - Casos especiales
         
         Returns:
-            Tuple de (puntaje, descripción)
+            Tuple de (puntaje_ivc, lista_detalles)
         """
-        if not paciente.timestamp_lista_espera:
-            return (0, "")
+        ivc = 0.0
+        detalles = []
         
-        tiempo_espera_min = getattr(paciente, 'tiempo_espera_min', 0) or 0
-        tipo_original = _normalizar_tipo_paciente(paciente.tipo_paciente)
+        # 1. Edad granular
+        edad = paciente.edad or 0
+        if edad >= 80:
+            ivc += self.BONUS_EDAD_GRANULAR['muy_mayor']
+            detalles.append(f'IVC Edad ≥80: +{self.BONUS_EDAD_GRANULAR["muy_mayor"]}')
+        elif edad >= 70:
+            ivc += self.BONUS_EDAD_GRANULAR['mayor']
+            detalles.append(f'IVC Edad 70-79: +{self.BONUS_EDAD_GRANULAR["mayor"]}')
+        elif edad >= 60:
+            ivc += self.BONUS_EDAD_GRANULAR['adulto_mayor']
+            detalles.append(f'IVC Edad 60-69: +{self.BONUS_EDAD_GRANULAR["adulto_mayor"]}')
+        elif edad < 5:
+            ivc += self.BONUS_EDAD_GRANULAR['infante']
+            detalles.append(f'IVC Infante <5: +{self.BONUS_EDAD_GRANULAR["infante"]}')
+        elif edad < 15:
+            ivc += self.BONUS_EDAD_GRANULAR['nino']
+            detalles.append(f'IVC Niño 5-14: +{self.BONUS_EDAD_GRANULAR["nino"]}')
         
-        # Urgencias: boost si >8 horas (480 minutos)
-        if tipo_original == 'urgencia':
-            if tiempo_espera_min > (self.BOOST_TIEMPO_URGENCIA_HORAS * 60):
-                return (self.BOOST_TIEMPO_URGENCIA_PUNTOS,
-                        f"Boost urgencia >8h: +{self.BOOST_TIEMPO_URGENCIA_PUNTOS}")
+        # 2. Monitorización activa
+        if (hasattr(paciente, 'monitorizacion_inicio') and paciente.monitorizacion_inicio and 
+            hasattr(paciente, 'monitorizacion_tiempo_horas') and paciente.monitorizacion_tiempo_horas):
+            ivc += self.BONUS_MONITORIZACION_ACTIVA
+            detalles.append(f'IVC Monitorización activa: +{self.BONUS_MONITORIZACION_ACTIVA}')
         
-        # Ambulatorios: boost si >4 días (5760 minutos)
-        elif tipo_original == 'ambulatorio':
-            if tiempo_espera_min > (self.BOOST_TIEMPO_AMBULATORIO_DIAS * 24 * 60):
-                return (self.BOOST_TIEMPO_AMBULATORIO_PUNTOS,
-                        f"Boost ambulatorio >4 días: +{self.BOOST_TIEMPO_AMBULATORIO_PUNTOS}")
+        # 3. Observación activa
+        if (hasattr(paciente, 'observacion_inicio') and paciente.observacion_inicio and 
+            hasattr(paciente, 'observacion_tiempo_horas') and paciente.observacion_tiempo_horas):
+            ivc += self.BONUS_OBSERVACION_ACTIVA
+            detalles.append(f'IVC Observación activa: +{self.BONUS_OBSERVACION_ACTIVA}')
         
-        # Derivados: boost si >1 día (1440 minutos)
-        elif tipo_original == 'derivado':
-            if tiempo_espera_min > (self.BOOST_TIEMPO_DERIVADO_DIAS * 24 * 60):
-                return (self.BOOST_TIEMPO_DERIVADO_PUNTOS,
-                        f"Boost derivado >1 día: +{self.BOOST_TIEMPO_DERIVADO_PUNTOS}")
+        # 4. Complejidad
+        complejidad = _normalizar_complejidad(paciente.complejidad_requerida)
+        bonus_complejidad = self.BONUS_COMPLEJIDAD_IVC.get(complejidad, 0)
+        if bonus_complejidad > 0:
+            ivc += bonus_complejidad
+            nombre_complejidad = {'alta': 'UCI', 'media': 'UTI', 'baja': 'Baja'}.get(complejidad, complejidad)
+            detalles.append(f'IVC Complejidad {nombre_complejidad}: +{bonus_complejidad}')
         
-        return (0, "")
+        # 5. Aislamiento crítico
+        aislamiento = _normalizar_aislamiento(paciente.tipo_aislamiento)
+        bonus_aislamiento = self.BONUS_AISLAMIENTO_IVC.get(aislamiento, 0)
+        if bonus_aislamiento > 0:
+            ivc += bonus_aislamiento
+            detalles.append(f'IVC Aislamiento {aislamiento}: +{bonus_aislamiento}')
+        
+        # 6. Embarazada
+        if paciente.es_embarazada:
+            ivc += self.BONUS_EMBARAZADA
+            detalles.append(f'IVC Embarazada: +{self.BONUS_EMBARAZADA}')
+        
+        # 7. Casos especiales
+        if paciente.tiene_casos_especiales():
+            ivc += self.BONUS_CASOS_ESPECIALES
+            detalles.append(f'IVC Casos especiales: +{self.BONUS_CASOS_ESPECIALES}')
+        
+        return ivc, detalles
+    
+    # ========================================
+    # NUEVOS MÉTODOS v3.1: FRC
+    # ========================================
+    
+    def _obtener_todos_requerimientos(self, paciente: Paciente) -> Set[str]:
+        """
+        Obtiene todos los requerimientos del paciente como un set de strings normalizados.
+        """
+        todos_reqs = set()
+        
+        for campo in ['requerimientos_baja', 'requerimientos_uti', 'requerimientos_uci', 'requerimientos_no_definen']:
+            try:
+                reqs = paciente.get_requerimientos_lista(campo)
+                for req in reqs:
+                    todos_reqs.add(req.lower().strip())
+            except Exception:
+                pass
+        
+        return todos_reqs
+    
+    def _calcular_frc(self, paciente: Paciente) -> Tuple[float, List[str]]:
+        """
+        Calcula el Factor de Requerimientos Críticos (FRC).
+        
+        Detecta requerimientos críticos que indican mayor gravedad:
+        - Drogas vasoactivas
+        - Sedación
+        - Oxígeno (cualquier tipo)
+        - Procedimiento invasivo/quirúrgico
+        - Aspiración invasiva de secreciones
+        
+        Returns:
+            Tuple de (puntaje_frc, lista_detalles)
+        """
+        frc = 0.0
+        detalles = []
+        
+        # Obtener todos los requerimientos como set normalizado
+        reqs_set = self._obtener_todos_requerimientos(paciente)
+        
+        # 1. Detectar drogas vasoactivas
+        if reqs_set & self.KEYWORDS_DROGAS_VASOACTIVAS:
+            bonus = self.BONUS_REQUERIMIENTOS_CRITICOS['drogas_vasoactivas']
+            frc += bonus
+            detalles.append(f'FRC Drogas vasoactivas: +{bonus}')
+        
+        # 2. Detectar sedación
+        if reqs_set & self.KEYWORDS_SEDACION:
+            bonus = self.BONUS_REQUERIMIENTOS_CRITICOS['sedacion']
+            frc += bonus
+            detalles.append(f'FRC Sedación: +{bonus}')
+        
+        # 3. Detectar oxígeno (cualquier tipo)
+        if reqs_set & self.KEYWORDS_OXIGENO:
+            bonus = self.BONUS_REQUERIMIENTOS_CRITICOS['oxigeno']
+            frc += bonus
+            detalles.append(f'FRC Oxígeno: +{bonus}')
+        
+        # 4. Detectar procedimiento invasivo/quirúrgico
+        tiene_procedimiento = False
+        
+        # Verificar campo booleano
+        if hasattr(paciente, 'procedimiento_invasivo') and paciente.procedimiento_invasivo:
+            tiene_procedimiento = True
+        
+        # Verificar preparación quirúrgica
+        if hasattr(paciente, 'preparacion_quirurgica_detalle') and paciente.preparacion_quirurgica_detalle:
+            tiene_procedimiento = True
+        
+        # Verificar keywords en requerimientos
+        if reqs_set & self.KEYWORDS_PROCEDIMIENTO:
+            tiene_procedimiento = True
+        
+        if tiene_procedimiento:
+            bonus = self.BONUS_REQUERIMIENTOS_CRITICOS['procedimiento_invasivo']
+            frc += bonus
+            detalles.append(f'FRC Procedimiento invasivo: +{bonus}')
+        
+        # 5. Detectar aspiración invasiva de secreciones
+        if reqs_set & self.KEYWORDS_ASPIRACION:
+            bonus = self.BONUS_REQUERIMIENTOS_CRITICOS['aspiracion_secreciones']
+            frc += bonus
+            detalles.append(f'FRC Aspiración secreciones: +{bonus}')
+        
+        return frc, detalles
+    
+    # ========================================
+    # NUEVOS MÉTODOS v3.1: TIEMPO NO LINEAL
+    # ========================================
+    
+    def _calcular_tiempo_no_lineal(self, paciente: Paciente) -> Tuple[float, str]:
+        """
+        Calcula el puntaje de tiempo con curva no lineal escalonada.
+        
+        Las curvas varían según el tipo efectivo:
+        - Urgencias: Aceleran más rápido
+        - Derivados: Aceleración media
+        - Ambulatorios: Aceleración lenta
+        
+        Returns:
+            Tuple de (puntaje_tiempo, descripción)
+        """
+        tiempo_min = getattr(paciente, 'tiempo_espera_min', 0) or 0
+        horas = tiempo_min / 60.0
+        tipo_efectivo = self._obtener_tipo_efectivo(paciente)
+        
+        pts = 0.0
+        desc = ""
+        
+        if tipo_efectivo == 'urgencia':
+            # Urgencias: 0-4h(3pts/h), 4-8h(5pts/h), >8h(8pts/h + boost)
+            if horas <= self.TIEMPO_URGENCIA_FASE1_HORAS:
+                pts = horas * self.TIEMPO_URGENCIA_FASE1_PTS
+            elif horas <= self.TIEMPO_URGENCIA_FASE2_HORAS:
+                pts = (self.TIEMPO_URGENCIA_FASE1_HORAS * self.TIEMPO_URGENCIA_FASE1_PTS +
+                       (horas - self.TIEMPO_URGENCIA_FASE1_HORAS) * self.TIEMPO_URGENCIA_FASE2_PTS)
+            else:
+                pts = (self.TIEMPO_URGENCIA_FASE1_HORAS * self.TIEMPO_URGENCIA_FASE1_PTS +
+                       (self.TIEMPO_URGENCIA_FASE2_HORAS - self.TIEMPO_URGENCIA_FASE1_HORAS) * self.TIEMPO_URGENCIA_FASE2_PTS +
+                       (horas - self.TIEMPO_URGENCIA_FASE2_HORAS) * self.TIEMPO_URGENCIA_FASE3_PTS +
+                       self.TIEMPO_URGENCIA_BOOST)
+            desc = f'Tiempo urgencia {horas:.1f}h: +{pts:.0f}'
+        
+        elif tipo_efectivo == 'derivado':
+            # Derivados: 0-12h(2pts/h), 12-24h(4pts/h), >24h(6pts/h + boost)
+            if horas <= self.TIEMPO_DERIVADO_FASE1_HORAS:
+                pts = horas * self.TIEMPO_DERIVADO_FASE1_PTS
+            elif horas <= self.TIEMPO_DERIVADO_FASE2_HORAS:
+                pts = (self.TIEMPO_DERIVADO_FASE1_HORAS * self.TIEMPO_DERIVADO_FASE1_PTS +
+                       (horas - self.TIEMPO_DERIVADO_FASE1_HORAS) * self.TIEMPO_DERIVADO_FASE2_PTS)
+            else:
+                pts = (self.TIEMPO_DERIVADO_FASE1_HORAS * self.TIEMPO_DERIVADO_FASE1_PTS +
+                       (self.TIEMPO_DERIVADO_FASE2_HORAS - self.TIEMPO_DERIVADO_FASE1_HORAS) * self.TIEMPO_DERIVADO_FASE2_PTS +
+                       (horas - self.TIEMPO_DERIVADO_FASE2_HORAS) * self.TIEMPO_DERIVADO_FASE3_PTS +
+                       self.TIEMPO_DERIVADO_BOOST)
+            desc = f'Tiempo derivado {horas:.1f}h: +{pts:.0f}'
+        
+        elif tipo_efectivo == 'hospitalizado':
+            # Hospitalizados: Usar curva de urgencia (ya tienen prioridad alta)
+            if horas <= self.TIEMPO_URGENCIA_FASE1_HORAS:
+                pts = horas * self.TIEMPO_URGENCIA_FASE1_PTS
+            elif horas <= self.TIEMPO_URGENCIA_FASE2_HORAS:
+                pts = (self.TIEMPO_URGENCIA_FASE1_HORAS * self.TIEMPO_URGENCIA_FASE1_PTS +
+                       (horas - self.TIEMPO_URGENCIA_FASE1_HORAS) * self.TIEMPO_URGENCIA_FASE2_PTS)
+            else:
+                pts = (self.TIEMPO_URGENCIA_FASE1_HORAS * self.TIEMPO_URGENCIA_FASE1_PTS +
+                       (self.TIEMPO_URGENCIA_FASE2_HORAS - self.TIEMPO_URGENCIA_FASE1_HORAS) * self.TIEMPO_URGENCIA_FASE2_PTS +
+                       (horas - self.TIEMPO_URGENCIA_FASE2_HORAS) * self.TIEMPO_URGENCIA_FASE3_PTS)
+            # Sin boost para hospitalizados (ya tienen prioridad máxima)
+            desc = f'Tiempo hospitalizado {horas:.1f}h: +{pts:.0f}'
+        
+        else:  # ambulatorio (tratamiento)
+            # Ambulatorios: 0-48h(1pts/h), 48-96h(2pts/h), >96h(4pts/h + boost)
+            if horas <= self.TIEMPO_AMBULATORIO_FASE1_HORAS:
+                pts = horas * self.TIEMPO_AMBULATORIO_FASE1_PTS
+            elif horas <= self.TIEMPO_AMBULATORIO_FASE2_HORAS:
+                pts = (self.TIEMPO_AMBULATORIO_FASE1_HORAS * self.TIEMPO_AMBULATORIO_FASE1_PTS +
+                       (horas - self.TIEMPO_AMBULATORIO_FASE1_HORAS) * self.TIEMPO_AMBULATORIO_FASE2_PTS)
+            else:
+                pts = (self.TIEMPO_AMBULATORIO_FASE1_HORAS * self.TIEMPO_AMBULATORIO_FASE1_PTS +
+                       (self.TIEMPO_AMBULATORIO_FASE2_HORAS - self.TIEMPO_AMBULATORIO_FASE1_HORAS) * self.TIEMPO_AMBULATORIO_FASE2_PTS +
+                       (horas - self.TIEMPO_AMBULATORIO_FASE2_HORAS) * self.TIEMPO_AMBULATORIO_FASE3_PTS +
+                       self.TIEMPO_AMBULATORIO_BOOST)
+            desc = f'Tiempo ambulatorio {horas:.1f}h: +{pts:.0f}'
+        
+        return pts, desc
+    
+    # ========================================
+    # NUEVOS MÉTODOS v3.1: MECANISMO DE RESCATE
+    # ========================================
+    
+    def _debe_activar_rescate(self, paciente: Paciente) -> bool:
+        """
+        Determina si se debe activar el mecanismo de rescate para un paciente.
+        
+        El rescate se activa cuando el paciente supera el umbral máximo de espera
+        según su tipo.
+        
+        Returns:
+            True si debe activar rescate
+        """
+        tiempo_min = getattr(paciente, 'tiempo_espera_min', 0) or 0
+        horas = tiempo_min / 60.0
+        
+        tipo_efectivo = self._obtener_tipo_efectivo(paciente)
+        
+        # Hospitalizados no tienen rescate (ya tienen prioridad máxima)
+        if tipo_efectivo == 'hospitalizado':
+            return False
+        
+        umbral = self.UMBRAL_RESCATE_HORAS.get(tipo_efectivo, 168)  # Default 7 días
+        
+        return horas >= umbral
+    
+    # ========================================
+    # MÉTODO PRINCIPAL: CALCULAR PRIORIDAD
+    # ========================================
     
     def calcular_prioridad(
         self, 
@@ -564,10 +879,12 @@ class PrioridadService:
         servicio_destino: Optional[str] = None
     ) -> float:
         """
-        Calcula la prioridad de un paciente.
+        Calcula la prioridad de un paciente v3.1.
         
-        IMPORTANTE: Si el paciente tiene cama_id, se considera HOSPITALIZADO
-        y recibe la prioridad máxima (200) + bonus por servicio de origen.
+        Fórmula:
+        P = Base_Tipo + Servicio_Origen + IVC + FRC + Tiempo_NoLineal
+        
+        Si activa rescate: P = PRIORIDAD_RESCATE (500)
         
         Args:
             paciente: El paciente a evaluar
@@ -576,6 +893,14 @@ class PrioridadService:
         Returns:
             Puntaje de prioridad calculado
         """
+        # Verificar mecanismo de rescate primero
+        if self._debe_activar_rescate(paciente):
+            logger.warning(
+                f"🚨 RESCATE ACTIVADO para {paciente.nombre} - "
+                f"Tiempo espera: {getattr(paciente, 'tiempo_espera_min', 0)/60:.1f}h"
+            )
+            return self.PRIORIDAD_RESCATE
+        
         puntaje = 0.0
         
         # 1. Puntaje por tipo de paciente EFECTIVO
@@ -593,56 +918,34 @@ class PrioridadService:
         es_destino_uti = self._es_destino_uti(paciente) if not servicio_destino else \
                          any(s in servicio_destino.lower() for s in self.SERVICIOS_UTI)
         
-        bonus_servicio, desc_servicio = self._calcular_bonus_servicio_origen(
+        bonus_servicio, _ = self._calcular_bonus_servicio_origen(
             paciente, servicio_origen, es_destino_uti
         )
         puntaje += bonus_servicio
         
-        logger.debug(f"  Servicio origen: {servicio_origen}, bonus: {bonus_servicio}")
+        # 3. IVC - Índice de Vulnerabilidad Clínica
+        puntaje_ivc, _ = self._calcular_ivc(paciente)
+        puntaje += puntaje_ivc
         
-        # 3. Puntaje por complejidad requerida
-        complejidad = _normalizar_complejidad(paciente.complejidad_requerida)
-        puntaje_complejidad = self.PESO_COMPLEJIDAD.get(complejidad, 0)
-        puntaje += puntaje_complejidad
+        # 4. FRC - Factor de Requerimientos Críticos
+        puntaje_frc, _ = self._calcular_frc(paciente)
+        puntaje += puntaje_frc
         
-        # 4. Puntaje por categoría de edad
-        edad_cat = _normalizar_edad_categoria(paciente.edad_categoria)
-        puntaje_edad = self.BONUS_EDAD.get(edad_cat, 0)
-        puntaje += puntaje_edad
-        
-        # 5. Puntaje por tipo de aislamiento
-        aislamiento = _normalizar_aislamiento(paciente.tipo_aislamiento)
-        puntaje_aislamiento = self.BONUS_AISLAMIENTO.get(aislamiento, 0)
-        puntaje += puntaje_aislamiento
-        
-        # 6. Puntaje por tiempo en espera (base)
-        puntaje_tiempo = 0.0
-        if paciente.timestamp_lista_espera:
-            tiempo_espera_min = getattr(paciente, 'tiempo_espera_min', 0) or 0
-            horas_espera = tiempo_espera_min / 60.0
-            puntaje_tiempo = horas_espera * self.FACTOR_TIEMPO_POR_HORA
-            puntaje += puntaje_tiempo
-        
-        # 6b. Boost adicional por tiempo según tipo original
-        boost_tiempo, _ = self._calcular_boost_tiempo(paciente)
-        puntaje += boost_tiempo
-        
-        # 7. Condiciones especiales
-        if paciente.es_embarazada:
-            puntaje += 15
-        
-        if paciente.tiene_casos_especiales():
-            puntaje += 10
+        # 5. Tiempo no lineal
+        puntaje_tiempo, _ = self._calcular_tiempo_no_lineal(paciente)
+        puntaje += puntaje_tiempo
         
         logger.info(
-            f"Prioridad {paciente.nombre}: tipo_efectivo={tipo_efectivo}({puntaje_tipo}), "
-            f"servicio={servicio_origen}({bonus_servicio}), complejidad={complejidad}({puntaje_complejidad}), "
-            f"edad={edad_cat}({puntaje_edad}), aislamiento={aislamiento}({puntaje_aislamiento}), "
-            f"tiempo={puntaje_tiempo:.1f}, boost={boost_tiempo}, "
-            f"TOTAL={puntaje:.2f}"
+            f"Prioridad v3.1 {paciente.nombre}: tipo={tipo_efectivo}({puntaje_tipo}), "
+            f"servicio={bonus_servicio}, IVC={puntaje_ivc}, FRC={puntaje_frc}, "
+            f"tiempo={puntaje_tiempo:.1f}, TOTAL={puntaje:.2f}"
         )
         
         return round(puntaje, 2)
+    
+    # ========================================
+    # MÉTODO EXPLICAR PRIORIDAD
+    # ========================================
     
     def explicar_prioridad(
         self, 
@@ -650,7 +953,7 @@ class PrioridadService:
         servicio_destino: Optional[str] = None
     ) -> ExplicacionPrioridad:
         """
-        Calcula y explica la prioridad de un paciente con desglose detallado.
+        Calcula y explica la prioridad de un paciente con desglose detallado v3.1.
         
         Args:
             paciente: El paciente a evaluar
@@ -661,17 +964,39 @@ class PrioridadService:
         """
         detalles = []
         
-        # 1. Puntaje por tipo de paciente EFECTIVO
+        # Verificar rescate
+        es_rescate = self._debe_activar_rescate(paciente)
+        if es_rescate:
+            tiempo_horas = getattr(paciente, 'tiempo_espera_min', 0) / 60.0
+            detalles.append(f"🚨 RESCATE ACTIVADO ({tiempo_horas:.1f}h espera): +{self.PRIORIDAD_RESCATE}")
+            
+            return ExplicacionPrioridad(
+                puntaje_total=self.PRIORIDAD_RESCATE,
+                puntaje_tipo=0,
+                puntaje_complejidad=0,
+                puntaje_edad=0,
+                puntaje_aislamiento=0,
+                puntaje_tiempo=0,
+                puntaje_servicio_origen=0,
+                puntaje_boost_tiempo=0,
+                puntaje_ivc=0,
+                puntaje_frc=0,
+                es_rescate=True,
+                tipo_efectivo=self._obtener_tipo_efectivo(paciente),
+                detalles=detalles
+            )
+        
+        # 1. Tipo efectivo
         tipo_efectivo = self._obtener_tipo_efectivo(paciente)
         tipo_original = _normalizar_tipo_paciente(paciente.tipo_paciente)
         puntaje_tipo = self.PESO_TIPO.get(tipo_efectivo, 0)
         
         if tipo_efectivo != tipo_original:
-            detalles.append(f"Tipo efectivo: {tipo_efectivo} (original: {tipo_original}, tiene cama): +{puntaje_tipo}")
+            detalles.append(f"Tipo efectivo: {tipo_efectivo} (original: {tipo_original}): +{puntaje_tipo}")
         else:
             detalles.append(f"Tipo {tipo_efectivo}: +{puntaje_tipo}")
         
-        # 2. Puntaje por servicio de origen
+        # 2. Servicio de origen
         servicio_origen = self._obtener_servicio_origen(paciente)
         es_destino_uti = self._es_destino_uti(paciente) if not servicio_destino else \
                          any(s in servicio_destino.lower() for s in self.SERVICIOS_UTI)
@@ -682,56 +1007,47 @@ class PrioridadService:
         if desc_servicio:
             detalles.append(desc_servicio)
         
-        # 3. Puntaje por complejidad
-        complejidad = _normalizar_complejidad(paciente.complejidad_requerida)
-        puntaje_complejidad = self.PESO_COMPLEJIDAD.get(complejidad, 0)
-        detalles.append(f"Complejidad {complejidad}: +{puntaje_complejidad}")
+        # 3. IVC
+        puntaje_ivc, detalles_ivc = self._calcular_ivc(paciente)
+        detalles.extend(detalles_ivc)
         
-        # 4. Puntaje por edad
-        edad_cat = _normalizar_edad_categoria(paciente.edad_categoria)
-        puntaje_edad = self.BONUS_EDAD.get(edad_cat, 0)
-        if puntaje_edad > 0:
-            detalles.append(f"Categoría edad {edad_cat}: +{puntaje_edad}")
+        # 4. FRC
+        puntaje_frc, detalles_frc = self._calcular_frc(paciente)
+        detalles.extend(detalles_frc)
         
-        # 5. Puntaje por aislamiento
-        aislamiento = _normalizar_aislamiento(paciente.tipo_aislamiento)
-        puntaje_aislamiento = self.BONUS_AISLAMIENTO.get(aislamiento, 0)
-        if puntaje_aislamiento > 0:
-            detalles.append(f"Aislamiento {aislamiento}: +{puntaje_aislamiento}")
-        
-        # 6. Puntaje por tiempo de espera
-        puntaje_tiempo = 0.0
-        if paciente.timestamp_lista_espera:
-            tiempo_espera_min = getattr(paciente, 'tiempo_espera_min', 0) or 0
-            horas = tiempo_espera_min / 60.0
-            puntaje_tiempo = horas * self.FACTOR_TIEMPO_POR_HORA
-            detalles.append(f"Tiempo espera ({tiempo_espera_min} min): +{puntaje_tiempo:.1f}")
-        
-        # 6b. Boost por tiempo según tipo original
-        puntaje_boost_tiempo, desc_boost = self._calcular_boost_tiempo(paciente)
-        if desc_boost:
-            detalles.append(desc_boost)
-        
-        # 7. Extras (embarazo, casos especiales)
-        extras = 0
-        if paciente.es_embarazada:
-            extras += 15
-            detalles.append("Embarazada: +15")
-        if paciente.tiene_casos_especiales():
-            extras += 10
-            detalles.append("Casos especiales: +10")
+        # 5. Tiempo no lineal
+        puntaje_tiempo, desc_tiempo = self._calcular_tiempo_no_lineal(paciente)
+        if desc_tiempo:
+            detalles.append(desc_tiempo)
         
         # Calcular total
         puntaje_total = (
             puntaje_tipo + 
             puntaje_servicio_origen +
-            puntaje_complejidad + 
-            puntaje_edad + 
-            puntaje_aislamiento + 
-            puntaje_tiempo +
-            puntaje_boost_tiempo +
-            extras
+            puntaje_ivc +
+            puntaje_frc +
+            puntaje_tiempo
         )
+        
+        # Extraer componentes individuales del IVC para el desglose
+        complejidad = _normalizar_complejidad(paciente.complejidad_requerida)
+        puntaje_complejidad = self.BONUS_COMPLEJIDAD_IVC.get(complejidad, 0)
+        
+        edad = paciente.edad or 0
+        puntaje_edad = 0
+        if edad >= 80:
+            puntaje_edad = self.BONUS_EDAD_GRANULAR['muy_mayor']
+        elif edad >= 70:
+            puntaje_edad = self.BONUS_EDAD_GRANULAR['mayor']
+        elif edad >= 60:
+            puntaje_edad = self.BONUS_EDAD_GRANULAR['adulto_mayor']
+        elif edad < 5:
+            puntaje_edad = self.BONUS_EDAD_GRANULAR['infante']
+        elif edad < 15:
+            puntaje_edad = self.BONUS_EDAD_GRANULAR['nino']
+        
+        aislamiento = _normalizar_aislamiento(paciente.tipo_aislamiento)
+        puntaje_aislamiento = self.BONUS_AISLAMIENTO_IVC.get(aislamiento, 0)
         
         return ExplicacionPrioridad(
             puntaje_total=round(puntaje_total, 2),
@@ -741,9 +1057,17 @@ class PrioridadService:
             puntaje_aislamiento=puntaje_aislamiento,
             puntaje_tiempo=round(puntaje_tiempo, 2),
             puntaje_servicio_origen=puntaje_servicio_origen,
-            puntaje_boost_tiempo=puntaje_boost_tiempo,
+            puntaje_boost_tiempo=0,  # Integrado en tiempo no lineal
+            puntaje_ivc=round(puntaje_ivc, 2),
+            puntaje_frc=round(puntaje_frc, 2),
+            es_rescate=False,
+            tipo_efectivo=tipo_efectivo,
             detalles=detalles
         )
+    
+    # ========================================
+    # MÉTODOS DE GESTIÓN DE COLA (PRESERVADOS)
+    # ========================================
     
     def agregar_a_cola(self, paciente: Paciente) -> float:
         """Agrega un paciente a la cola de espera."""
@@ -782,20 +1106,10 @@ class PrioridadService:
     ) -> List[Tuple[Paciente, float, int]]:
         """
         Recalcula las prioridades considerando un servicio de destino específico.
-        Útil cuando se libera una cama y se quiere ordenar por la lógica especial
-        (ej: destino UTI tiene priorización diferente).
-        
-        Args:
-            hospital_id: ID del hospital
-            servicio_destino: Nombre del servicio de destino
-        
-        Returns:
-            Lista ordenada de (paciente, prioridad, posición)
         """
         cola = gestor_colas_global.obtener_cola(hospital_id)
         pacientes_ids = [pid for pid, _ in cola.obtener_todos_ordenados()]
         
-        # Recalcular prioridades con el servicio de destino
         prioridades_recalculadas = []
         for paciente_id in pacientes_ids:
             paciente = self.paciente_repo.obtener_por_id(paciente_id)
@@ -803,10 +1117,8 @@ class PrioridadService:
                 prioridad = self.calcular_prioridad(paciente, servicio_destino)
                 prioridades_recalculadas.append((paciente, prioridad))
         
-        # Ordenar por prioridad descendente
         prioridades_recalculadas.sort(key=lambda x: x[1], reverse=True)
         
-        # Agregar posición
         resultado = []
         for posicion, (paciente, prioridad) in enumerate(prioridades_recalculadas, 1):
             resultado.append((paciente, prioridad, posicion))
@@ -833,26 +1145,14 @@ class PrioridadService:
     ) -> Optional[Tuple[Paciente, float]]:
         """
         Obtiene el siguiente paciente más prioritario para una cama.
-        
-        Si se especifica servicio_destino, aplica la lógica especial
-        (ej: para UTI, prioriza de forma diferente).
-        
-        Args:
-            hospital_id: ID del hospital
-            servicio_destino: Servicio de destino de la cama
-        
-        Returns:
-            Tuple de (paciente, prioridad) o None
         """
         if servicio_destino:
-            # Recalcular con lógica especial
             lista = self.recalcular_prioridades_para_destino(hospital_id, servicio_destino)
             if lista:
                 paciente, prioridad, _ = lista[0]
                 return (paciente, prioridad)
             return None
         
-        # Obtener de la cola normal
         cola = gestor_colas_global.obtener_cola(hospital_id)
         paciente_id = cola.obtener_siguiente()
         
@@ -863,7 +1163,54 @@ class PrioridadService:
                 return (paciente, prioridad or 0)
         
         return None
+    
+    def obtener_estadisticas_cola(self, hospital_id: str) -> dict:
+        """
+        Obtiene estadísticas de la cola de espera.
+        
+        Útil para dashboards y monitoreo.
+        """
+        cola = gestor_colas_global.obtener_cola(hospital_id)
+        ordenados = cola.obtener_todos_ordenados()
+        
+        if not ordenados:
+            return {
+                'total_pacientes': 0,
+                'por_tipo': {},
+                'en_rescate': 0,
+                'prioridad_promedio': 0,
+                'prioridad_maxima': 0,
+                'prioridad_minima': 0,
+            }
+        
+        # Contar por tipo y rescates
+        por_tipo = {'hospitalizado': 0, 'urgencia': 0, 'derivado': 0, 'ambulatorio': 0}
+        en_rescate = 0
+        prioridades = []
+        
+        for paciente_id, prioridad in ordenados:
+            paciente = self.paciente_repo.obtener_por_id(paciente_id)
+            if paciente:
+                tipo_efectivo = self._obtener_tipo_efectivo(paciente)
+                por_tipo[tipo_efectivo] = por_tipo.get(tipo_efectivo, 0) + 1
+                prioridades.append(prioridad)
+                
+                if self._debe_activar_rescate(paciente):
+                    en_rescate += 1
+        
+        return {
+            'total_pacientes': len(ordenados),
+            'por_tipo': por_tipo,
+            'en_rescate': en_rescate,
+            'prioridad_promedio': round(sum(prioridades) / len(prioridades), 2) if prioridades else 0,
+            'prioridad_maxima': max(prioridades) if prioridades else 0,
+            'prioridad_minima': min(prioridades) if prioridades else 0,
+        }
 
+
+# ============================================
+# FUNCIONES DE INICIALIZACIÓN
+# ============================================
 
 def sincronizar_colas_iniciales(session: Session) -> None:
     """Sincroniza todas las colas con la base de datos al inicio."""

@@ -82,6 +82,10 @@ class EstadoCamaEnum(str, Enum):
     BLOQUEADA = "bloqueada"
     ESPERA_DERIVACION = "espera_derivacion"
     DERIVACION_CONFIRMADA = "derivacion_confirmada"
+    # ============================================
+    # NUEVO ESTADO: PACIENTE FALLECIDO
+    # ============================================
+    FALLECIDO = "fallecido"
 
 
 class EstadoListaEsperaEnum(str, Enum):
@@ -105,6 +109,7 @@ ESTADOS_CAMA_OCUPADA = [
     EstadoCamaEnum.CAMA_ALTA,
     EstadoCamaEnum.ESPERA_DERIVACION,
     EstadoCamaEnum.DERIVACION_CONFIRMADA,
+    EstadoCamaEnum.FALLECIDO,  # AGREGADO: Fallecido también cuenta como ocupada
 ]
 
 # Aislamientos que requieren sala individual

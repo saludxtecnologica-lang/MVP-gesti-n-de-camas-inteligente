@@ -2,12 +2,16 @@
 Tareas en segundo plano del sistema.
 Procesos automáticos de asignación y limpieza.
 
-ACTUALIZADO: Incluye actualización de sexo de sala y verificación de compatibilidad.
+ACTUALIZADO v3.0:
+- PROBLEMA 1: Corregida verificación de compatibilidad post-pausa de oxígeno
+- PROBLEMA 6: Corregido procesamiento de timers de monitorización/observación
+  con cambio de estado de cama cuando corresponde
 
 Ubicación: app/core/background_tasks.py
 """
 import asyncio
 import logging
+import json
 from datetime import datetime, timedelta
 from sqlmodel import Session, select
 
@@ -24,6 +28,7 @@ from app.models.hospital import Hospital
 from app.services.compatibilidad_service import (
     CompatibilidadService,
     verificar_y_actualizar_sexo_sala_al_egreso,
+    _obtener_nivel_complejidad,
 )
 
 logger = logging.getLogger("gestion_camas.background")
@@ -36,7 +41,8 @@ async def proceso_automatico():
     Ejecuta periódicamente:
     1. Procesamiento de camas en limpieza
     2. Procesamiento de pacientes esperando evaluación de oxígeno
-    3. Asignación automática de camas (si no está en modo manual)
+    3. Procesamiento de timers de monitorización/observación clínica
+    4. Asignación automática de camas (si no está en modo manual)
     """
     logger.info("Iniciando proceso automático")
     
@@ -72,7 +78,10 @@ async def proceso_automatico():
                         tiempo_oxigeno
                     )
                     
-                    # 3. SIEMPRE ejecutar asignación automática
+                    # 3. Procesar timers de monitorización/observación
+                    await procesar_timers_monitorizacion_observacion(session)
+                    
+                    # 4. SIEMPRE ejecutar asignación automática
                     await ejecutar_asignacion_automatica_todas(session)
                 
             finally:
@@ -146,15 +155,13 @@ async def procesar_pacientes_espera_oxigeno(
     """
     Procesa pacientes esperando evaluación tras descalaje de oxígeno.
     
-    ACTUALIZADO: Usa el servicio de compatibilidad para verificaciones.
+    PROBLEMA 1 CORREGIDO: Ahora verifica si la cama actual es compatible
+    con la nueva complejidad del paciente antes de cambiar a CAMA_EN_ESPERA.
     
     Después del tiempo de espera, evalúa y cambia el estado de la cama a:
     - ALTA_SUGERIDA: Si el paciente no tiene requerimientos (puede ser dado de alta)
-    - CAMA_EN_ESPERA: Si el paciente requiere nueva cama (flag o incompatible)
+    - CAMA_EN_ESPERA: Si el paciente requiere nueva cama (complejidad incompatible)
     - OCUPADA: Si el paciente es compatible con la cama actual
-    
-    IMPORTANTE: Respeta el flag requiere_nueva_cama que pudo haberse establecido
-    durante reevaluaciones previas dentro del período de pausa.
     
     Args:
         session: Sesión de base de datos
@@ -176,8 +183,11 @@ async def procesar_pacientes_espera_oxigeno(
     )
     pacientes = session.exec(query).all()
     
-    # Crear servicio de compatibilidad
+    # Crear servicios necesarios
     compatibilidad_service = CompatibilidadService(session)
+    
+    from app.services.asignacion_service import AsignacionService
+    asignacion_service = AsignacionService(session)
     
     for paciente in pacientes:
         cama = session.get(Cama, paciente.cama_id)
@@ -195,26 +205,69 @@ async def procesar_pacientes_espera_oxigeno(
         paciente.oxigeno_desactivado_at = None
         paciente.requerimientos_oxigeno_previos = None
         
-        # Determinar nuevo estado usando el servicio de asignación
-        from app.services.asignacion_service import AsignacionService
-        service = AsignacionService(session)
+        # ============================================
+        # PROBLEMA 1: VERIFICAR COMPATIBILIDAD REAL
+        # ============================================
+        
+        # Calcular complejidades
+        complejidad_paciente = asignacion_service.calcular_complejidad(paciente)
+        complejidad_cama = asignacion_service.obtener_complejidad_cama(cama)
+        
+        nivel_paciente = _obtener_nivel_complejidad(complejidad_paciente)
+        nivel_cama = _obtener_nivel_complejidad(complejidad_cama)
+        
+        logger.info(
+            f"  Complejidad paciente: {complejidad_paciente.value} (nivel {nivel_paciente}), "
+            f"Complejidad cama: {complejidad_cama.value} (nivel {nivel_cama})"
+        )
         
         # PRIMERO: Verificar si puede sugerir alta (sin requerimientos)
-        if service.puede_sugerir_alta(paciente):
+        if asignacion_service.puede_sugerir_alta(paciente):
             cama.estado = EstadoCamaEnum.ALTA_SUGERIDA
             cama.mensaje_estado = "Se sugiere evaluar alta"
             paciente.requiere_nueva_cama = False
             logger.info(f"  → Paciente {paciente.nombre}: ALTA_SUGERIDA (sin requerimientos)")
         
-        # SEGUNDO: Verificar si tiene flag de requiere_nueva_cama
-        elif paciente.requiere_nueva_cama:
+        # SEGUNDO: Verificar si la cama actual es INCOMPATIBLE (nivel inferior)
+        elif nivel_cama < nivel_paciente:
+            # La cama NO soporta la complejidad del paciente
             cama.estado = EstadoCamaEnum.CAMA_EN_ESPERA
-            cama.mensaje_estado = "Paciente requiere nueva cama"
-            logger.info(f"  → Paciente {paciente.nombre}: CAMA_EN_ESPERA (flag activo)")
+            cama.mensaje_estado = "Paciente requiere cama de mayor complejidad"
+            paciente.requiere_nueva_cama = True
+            logger.info(
+                f"  → Paciente {paciente.nombre}: CAMA_EN_ESPERA "
+                f"(cama nivel {nivel_cama} < paciente nivel {nivel_paciente})"
+            )
         
-        # TERCERO: Verificar compatibilidad completa (incluye sexo y aislamiento)
+        # TERCERO: Si tiene flag de requiere_nueva_cama Y hay camas disponibles
+        elif paciente.requiere_nueva_cama:
+            # Verificar si hay camas del nivel correcto disponibles
+            hay_alternativas = compatibilidad_service.hay_camas_nivel_correcto_disponibles(
+                paciente, paciente.hospital_id
+            )
+            
+            if hay_alternativas and nivel_cama > nivel_paciente:
+                # Hay camas del nivel correcto y está en cama de mayor complejidad
+                cama.estado = EstadoCamaEnum.CAMA_EN_ESPERA
+                cama.mensaje_estado = "Paciente puede ir a cama de menor complejidad"
+                logger.info(
+                    f"  → Paciente {paciente.nombre}: CAMA_EN_ESPERA "
+                    f"(hay camas nivel {nivel_paciente} disponibles)"
+                )
+            else:
+                # No hay alternativas o la cama es del nivel correcto
+                cama.estado = EstadoCamaEnum.OCUPADA
+                cama.mensaje_estado = None
+                paciente.requiere_nueva_cama = False
+                logger.info(
+                    f"  → Paciente {paciente.nombre}: OCUPADA "
+                    f"(cama compatible, no hay mejores alternativas)"
+                )
+        
+        # CUARTO: Cama compatible, paciente se queda
         else:
-            es_compatible, problemas = compatibilidad_service.verificar_compatibilidad_completa(
+            # Verificación final de compatibilidad completa
+            es_compatible, problemas = compatibilidad_service.verificar_compatibilidad_arribo(
                 paciente, cama
             )
             
@@ -249,6 +302,253 @@ async def procesar_pacientes_espera_oxigeno(
         })
     
     return pacientes_procesados
+
+
+async def procesar_timers_monitorizacion_observacion(session: Session) -> dict:
+    """
+    Procesa los timers de monitorización y observación clínica.
+    
+    PROBLEMA 6 CORREGIDO: 
+    - Guarda correctamente los timers
+    - Desmarca automáticamente al cumplirse
+    - Cambia estado de cama a CAMA_EN_ESPERA si corresponde
+    
+    Cuando un timer se completa:
+    1. Desmarca automáticamente el requerimiento correspondiente
+    2. Recalcula la complejidad del paciente
+    3. Evalúa si necesita cambio de cama
+    4. Genera una notificación
+    
+    Returns:
+        Dict con conteo de timers procesados
+    """
+    from app.services.asignacion_service import AsignacionService
+    from app.services.compatibilidad_service import CompatibilidadService, _obtener_nivel_complejidad
+    
+    ahora = datetime.utcnow()
+    timers_completados = {
+        'observacion': [],
+        'monitorizacion': []
+    }
+    
+    asignacion_service = AsignacionService(session)
+    compatibilidad_service = CompatibilidadService(session)
+    
+    # ============================================
+    # PROCESAR TIMERS DE OBSERVACIÓN CLÍNICA
+    # ============================================
+    
+    query_obs = select(Paciente).where(
+        Paciente.observacion_tiempo_horas.isnot(None),
+        Paciente.observacion_inicio.isnot(None),
+        Paciente.cama_id.isnot(None)  # Solo pacientes con cama
+    )
+    pacientes_obs = session.exec(query_obs).all()
+    
+    for paciente in pacientes_obs:
+        tiempo_total_seg = paciente.observacion_tiempo_horas * 3600
+        tiempo_transcurrido = (ahora - paciente.observacion_inicio).total_seconds()
+        
+        if tiempo_transcurrido >= tiempo_total_seg:
+            # Timer completado - desmarcar observación
+            logger.info(
+                f"Timer de observación completado para {paciente.nombre} "
+                f"({paciente.observacion_tiempo_horas}h)"
+            )
+            
+            # Actualizar requerimientos - remover "Observación clínica"
+            req_baja = paciente.get_requerimientos_lista('requerimientos_baja')
+            if 'Observación clínica' in req_baja:
+                req_baja.remove('Observación clínica')
+                paciente.requerimientos_baja = json.dumps(req_baja)
+            
+            # Limpiar campos de observación
+            paciente.observacion_tiempo_horas = None
+            paciente.observacion_inicio = None
+            paciente.motivo_observacion = None
+            paciente.justificacion_observacion = None
+            
+            # Recalcular complejidad
+            complejidad_anterior = paciente.complejidad_requerida
+            paciente.complejidad_requerida = asignacion_service.calcular_complejidad(paciente)
+            
+            # Obtener cama actual
+            cama = session.get(Cama, paciente.cama_id)
+            
+            if cama:
+                # Evaluar si necesita cambio de cama
+                complejidad_cama = asignacion_service.obtener_complejidad_cama(cama)
+                nivel_paciente = _obtener_nivel_complejidad(paciente.complejidad_requerida)
+                nivel_cama = _obtener_nivel_complejidad(complejidad_cama)
+                
+                # Si puede sugerir alta
+                if asignacion_service.puede_sugerir_alta(paciente):
+                    cama.estado = EstadoCamaEnum.ALTA_SUGERIDA
+                    cama.mensaje_estado = "Se sugiere evaluar alta (timer observación completado)"
+                    paciente.requiere_nueva_cama = False
+                    logger.info(f"  → {paciente.nombre}: ALTA_SUGERIDA")
+                # Si la cama es de mayor complejidad y hay alternativas
+                elif nivel_cama > nivel_paciente:
+                    if compatibilidad_service.hay_camas_nivel_correcto_disponibles(
+                        paciente, paciente.hospital_id
+                    ):
+                        cama.estado = EstadoCamaEnum.CAMA_EN_ESPERA
+                        cama.mensaje_estado = "Paciente puede bajar de complejidad (timer completado)"
+                        paciente.requiere_nueva_cama = True
+                        logger.info(f"  → {paciente.nombre}: CAMA_EN_ESPERA (bajar complejidad)")
+                    else:
+                        cama.estado = EstadoCamaEnum.OCUPADA
+                        cama.mensaje_estado = None
+                        logger.info(f"  → {paciente.nombre}: OCUPADA (sin alternativas)")
+                else:
+                    cama.estado = EstadoCamaEnum.OCUPADA
+                    cama.mensaje_estado = None
+                    logger.info(f"  → {paciente.nombre}: OCUPADA (cama compatible)")
+                
+                cama.estado_updated_at = ahora
+                session.add(cama)
+            
+            paciente.updated_at = ahora
+            session.add(paciente)
+            
+            timers_completados['observacion'].append({
+                'paciente_id': paciente.id,
+                'nombre': paciente.nombre,
+                'hospital_id': paciente.hospital_id,
+                'nuevo_estado': cama.estado.value if cama else None
+            })
+    
+    # ============================================
+    # PROCESAR TIMERS DE MONITORIZACIÓN
+    # ============================================
+    
+    query_mon = select(Paciente).where(
+        Paciente.monitorizacion_tiempo_horas.isnot(None),
+        Paciente.monitorizacion_inicio.isnot(None),
+        Paciente.cama_id.isnot(None)  # Solo pacientes con cama
+    )
+    pacientes_mon = session.exec(query_mon).all()
+    
+    for paciente in pacientes_mon:
+        tiempo_total_seg = paciente.monitorizacion_tiempo_horas * 3600
+        tiempo_transcurrido = (ahora - paciente.monitorizacion_inicio).total_seconds()
+        
+        if tiempo_transcurrido >= tiempo_total_seg:
+            # Timer completado - desmarcar monitorización
+            logger.info(
+                f"Timer de monitorización completado para {paciente.nombre} "
+                f"({paciente.monitorizacion_tiempo_horas}h)"
+            )
+            
+            # Actualizar requerimientos - remover "Monitorización continua"
+            req_uti = paciente.get_requerimientos_lista('requerimientos_uti')
+            if 'Monitorización continua' in req_uti:
+                req_uti.remove('Monitorización continua')
+                paciente.requerimientos_uti = json.dumps(req_uti)
+            
+            # Limpiar campos de monitorización
+            paciente.monitorizacion_tiempo_horas = None
+            paciente.monitorizacion_inicio = None
+            paciente.motivo_monitorizacion = None
+            paciente.justificacion_monitorizacion = None
+            
+            # Recalcular complejidad
+            complejidad_anterior = paciente.complejidad_requerida
+            paciente.complejidad_requerida = asignacion_service.calcular_complejidad(paciente)
+            
+            # Obtener cama actual
+            cama = session.get(Cama, paciente.cama_id)
+            
+            if cama:
+                # Evaluar si necesita cambio de cama
+                complejidad_cama = asignacion_service.obtener_complejidad_cama(cama)
+                nivel_paciente = _obtener_nivel_complejidad(paciente.complejidad_requerida)
+                nivel_cama = _obtener_nivel_complejidad(complejidad_cama)
+                
+                logger.info(
+                    f"  Complejidad: antes={complejidad_anterior.value if complejidad_anterior else 'N/A'}, "
+                    f"ahora={paciente.complejidad_requerida.value}, "
+                    f"cama={complejidad_cama.value}"
+                )
+                
+                # Si puede sugerir alta
+                if asignacion_service.puede_sugerir_alta(paciente):
+                    cama.estado = EstadoCamaEnum.ALTA_SUGERIDA
+                    cama.mensaje_estado = "Se sugiere evaluar alta (timer monitorización completado)"
+                    paciente.requiere_nueva_cama = False
+                    logger.info(f"  → {paciente.nombre}: ALTA_SUGERIDA")
+                # Si la cama es de mayor complejidad y hay alternativas
+                elif nivel_cama > nivel_paciente:
+                    if compatibilidad_service.hay_camas_nivel_correcto_disponibles(
+                        paciente, paciente.hospital_id
+                    ):
+                        cama.estado = EstadoCamaEnum.CAMA_EN_ESPERA
+                        cama.mensaje_estado = "Paciente puede bajar de complejidad (timer completado)"
+                        paciente.requiere_nueva_cama = True
+                        logger.info(f"  → {paciente.nombre}: CAMA_EN_ESPERA (bajar de UTI)")
+                    else:
+                        cama.estado = EstadoCamaEnum.OCUPADA
+                        cama.mensaje_estado = None
+                        logger.info(f"  → {paciente.nombre}: OCUPADA (sin alternativas de menor complejidad)")
+                else:
+                    cama.estado = EstadoCamaEnum.OCUPADA
+                    cama.mensaje_estado = None
+                    logger.info(f"  → {paciente.nombre}: OCUPADA (cama compatible)")
+                
+                cama.estado_updated_at = ahora
+                session.add(cama)
+            
+            paciente.updated_at = ahora
+            session.add(paciente)
+            
+            timers_completados['monitorizacion'].append({
+                'paciente_id': paciente.id,
+                'nombre': paciente.nombre,
+                'hospital_id': paciente.hospital_id,
+                'nuevo_estado': cama.estado.value if cama else None
+            })
+    
+    # ============================================
+    # COMMIT Y NOTIFICACIONES
+    # ============================================
+    
+    total_procesados = len(timers_completados['observacion']) + len(timers_completados['monitorizacion'])
+    
+    if total_procesados > 0:
+        session.commit()
+        
+        # Notificación de observación completada
+        for item in timers_completados['observacion']:
+            await manager.broadcast({
+                "tipo": "timer_observacion_completado",
+                "paciente_id": item['paciente_id'],
+                "paciente_nombre": item['nombre'],
+                "hospital_id": item['hospital_id'],
+                "nuevo_estado": item.get('nuevo_estado'),
+                "reload": True,
+                "play_sound": True,
+                "mensaje": f"Tiempo de observación clínica completado para {item['nombre']}"
+            })
+        
+        # Notificación de monitorización completada
+        for item in timers_completados['monitorizacion']:
+            await manager.broadcast({
+                "tipo": "timer_monitorizacion_completado",
+                "paciente_id": item['paciente_id'],
+                "paciente_nombre": item['nombre'],
+                "hospital_id": item['hospital_id'],
+                "nuevo_estado": item.get('nuevo_estado'),
+                "reload": True,
+                "play_sound": True,
+                "mensaje": f"Tiempo de monitorización completado para {item['nombre']}"
+            })
+        
+        logger.info(
+            f"Timers procesados: {len(timers_completados['observacion'])} observación, "
+            f"{len(timers_completados['monitorizacion'])} monitorización"
+        )
+    
+    return timers_completados
 
 
 async def ejecutar_asignacion_automatica_todas(session: Session) -> None:

@@ -1,5 +1,5 @@
 """
-Modelo de Servicio Hospitalario.
+Modelo de Servicio.
 """
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List, TYPE_CHECKING
@@ -14,10 +14,9 @@ if TYPE_CHECKING:
 
 class Servicio(SQLModel, table=True):
     """
-    Modelo de Servicio Hospitalario.
+    Modelo de Servicio hospitalario.
     
-    Representa un servicio clínico dentro de un hospital.
-    Ejemplos: UCI, UTI, Medicina, Cirugía, etc.
+    Representa un servicio dentro de un hospital (UCI, UTI, Medicina, etc.)
     """
     __tablename__ = "servicio"
     
@@ -25,16 +24,15 @@ class Servicio(SQLModel, table=True):
         default_factory=lambda: str(uuid.uuid4()), 
         primary_key=True
     )
-    nombre: str
-    codigo: str  # UCI, UTI, MED, etc.
+    nombre: str = Field(index=True)
+    codigo: str
     tipo: TipoServicioEnum
     hospital_id: str = Field(foreign_key="hospital.id", index=True)
-    numero_inicio_camas: int = Field(default=100)
     
-    # Configuración del servicio
-    es_uci: bool = Field(default=False)
-    es_uti: bool = Field(default=False)
-    permite_pediatria: bool = Field(default=False)
+    # ============================================
+    # NUEVO CAMPO: Teléfono de contacto del servicio
+    # ============================================
+    telefono: Optional[str] = Field(default=None, max_length=50)
     
     # Relaciones
     hospital: "Hospital" = Relationship(back_populates="servicios")

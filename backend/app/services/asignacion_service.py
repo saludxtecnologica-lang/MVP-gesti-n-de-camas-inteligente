@@ -1,6 +1,10 @@
 """
 Servicio de Asignación de Camas.
 Contiene la lógica principal de asignación.
+
+ACTUALIZADO v3.0:
+- PROBLEMA 1: Corregida verificación de cambio de cama con requerimientos especiales
+- PROBLEMA 7: Ajustada regla de embarazada para siempre ir a obstetricia si baja complejidad
 """
 from typing import Optional, List, Tuple
 from sqlmodel import Session, select
@@ -14,6 +18,8 @@ from app.models.cama import Cama
 from app.models.sala import Sala
 from app.models.servicio import Servicio
 from app.models.hospital import Hospital
+from app.core.eventos_audibles import crear_evento_asignacion
+import asyncio
 from app.models.enums import (
     EstadoCamaEnum,
     EstadoListaEsperaEnum,
@@ -45,6 +51,8 @@ from app.services.compatibilidad_service import (
     CompatibilidadService,
     verificar_y_actualizar_sexo_sala_al_egreso,
     verificar_y_actualizar_sexo_sala_al_ingreso,
+    NIVEL_COMPLEJIDAD,
+    _obtener_nivel_complejidad,
 )
 
 from app.core.websocket_manager import manager
@@ -125,6 +133,29 @@ class AsignacionService:
         if reqs_baja:
             return ComplejidadEnum.BAJA
         return ComplejidadEnum.NINGUNA
+    
+    # ============================================
+    # OBTENER COMPLEJIDAD DE CAMA
+    # ============================================
+    
+    def obtener_complejidad_cama(self, cama: Cama) -> ComplejidadEnum:
+        """
+        Obtiene la complejidad de una cama basándose en su servicio.
+        
+        Returns:
+            ComplejidadEnum correspondiente al servicio de la cama
+        """
+        if not cama.sala or not cama.sala.servicio:
+            return ComplejidadEnum.BAJA
+        
+        tipo_servicio = cama.sala.servicio.tipo
+        
+        if tipo_servicio == TipoServicioEnum.UCI:
+            return ComplejidadEnum.ALTA
+        elif tipo_servicio == TipoServicioEnum.UTI:
+            return ComplejidadEnum.MEDIA
+        else:
+            return ComplejidadEnum.BAJA
     
     # ============================================
     # DETECCIÓN DE DESCALAJE DE OXÍGENO
@@ -261,6 +292,11 @@ class AsignacionService:
                 if paciente.tipo_aislamiento not in AISLAMIENTOS_SALA_INDIVIDUAL:
                     puntaje -= 30
             
+            # PROBLEMA 7: Boost para obstetricia si es embarazada de baja complejidad
+            if paciente.es_embarazada and complejidad in [ComplejidadEnum.BAJA, ComplejidadEnum.NINGUNA]:
+                if servicio.tipo == TipoServicioEnum.OBSTETRICIA:
+                    puntaje += 200  # Máxima prioridad
+            
             return puntaje
         
         return sorted(camas, key=puntaje_cama, reverse=True)
@@ -270,6 +306,7 @@ class AsignacionService:
         Verifica si una cama es compatible con un paciente.
         
         INCLUYE verificación de tipo de enfermedad vs servicio.
+        PROBLEMA 7: Embarazada de baja complejidad SIEMPRE va a obstetricia.
         """
         sala = cama.sala
         if not sala:
@@ -316,6 +353,18 @@ class AsignacionService:
                     logger.debug(f"Cama {cama.identificador}: requiere aislamiento individual")
                     return False
         
+        # ============================================
+        # PROBLEMA 7: REGLA DE EMBARAZADA AJUSTADA
+        # Embarazada de baja complejidad SOLO va a obstetricia
+        # ============================================
+        if paciente.es_embarazada and complejidad in [ComplejidadEnum.BAJA, ComplejidadEnum.NINGUNA]:
+            if tipo_servicio != TipoServicioEnum.OBSTETRICIA:
+                logger.debug(
+                    f"Cama {cama.identificador}: embarazada de baja complejidad "
+                    f"solo puede ir a obstetricia, no a {tipo_servicio.value}"
+                )
+                return False
+        
         # 5. VERIFICAR TIPO DE ENFERMEDAD vs SERVICIO
         tipo_enfermedad = paciente.tipo_enfermedad
         
@@ -332,7 +381,7 @@ class AsignacionService:
                 return False
         
         # ============================================
-        # NUEVO: Verificar compatibilidad enfermedad-servicio para Medicina/Cirugía
+        # Verificar compatibilidad enfermedad-servicio para Medicina/Cirugía
         # ============================================
         
         # UCI, UTI, Aislamiento y Pediatría aceptan cualquier tipo de enfermedad
@@ -398,79 +447,29 @@ class AsignacionService:
         servicios = self.session.exec(query).all()
         tipos_servicios = [s.tipo for s in servicios]
         
-        # ============================================
-        # 1. Verificar si existe el tipo de servicio requerido
-        # ============================================
+        # Verificar si tiene al menos un servicio compatible
+        servicios_disponibles = [s for s in servicios_requeridos if s in tipos_servicios]
         
-        # Verificar complejidad
-        tiene_servicio_complejidad = any(s in tipos_servicios for s in servicios_requeridos)
-        if servicios_requeridos and not tiene_servicio_complejidad:
-            nombres = [s.value for s in servicios_requeridos]
-            return False, f"El hospital no cuenta con servicios de {', '.join(nombres)} requeridos para complejidad {complejidad.value}"
-        
-        # Verificar pediátrico
-        if paciente.es_pediatrico:
-            if TipoServicioEnum.PEDIATRIA not in tipos_servicios:
-                return False, "El hospital no cuenta con servicio de Pediatría"
-        
-        # Verificar aislamiento individual
-        if paciente.tipo_aislamiento in AISLAMIENTOS_SALA_INDIVIDUAL:
-            tiene_individual = any(s.tipo in [
-                TipoServicioEnum.UCI, 
-                TipoServicioEnum.UTI, 
-                TipoServicioEnum.AISLAMIENTO
-            ] for s in servicios)
-            
-            if not tiene_individual:
-                query_salas = (
-                    select(Sala)
-                    .join(Servicio)
-                    .where(Servicio.hospital_id == hospital_id, Sala.es_individual == True)
-                )
-                salas_ind = self.session.exec(query_salas).all()
-                if not salas_ind:
-                    return False, f"El hospital no cuenta con salas de aislamiento individual requeridas para {paciente.tipo_aislamiento.value}"
-        
-        # ============================================
-        # 2. Verificar si hay camas LIBRES compatibles
-        # ============================================
-        camas_libres = self.cama_repo.obtener_libres_por_hospital(hospital_id)
-        
-        if not camas_libres:
-            # No hay camas libres, pero el hospital SÍ tiene el tipo de servicio
-            # Dejar que continúe con la búsqueda normal (esperará en lista)
-            logger.info(f"Hospital {hospital_id}: tiene servicio requerido pero sin camas libres")
-            return True, "El hospital tiene el tipo de cama requerido (sin camas libres actualmente)"
-        
-        # Verificar si alguna cama libre es compatible
-        tiene_cama_compatible = False
-        for cama in camas_libres:
-            if self._es_cama_compatible(cama, paciente):
-                tiene_cama_compatible = True
-                break
-        
-        if not tiene_cama_compatible:
-            # Hay camas libres pero NINGUNA es compatible
-            # Esto significa que el hospital NO puede atender a este paciente
-            logger.info(
-                f"Hospital {hospital_id}: tiene camas libres pero ninguna compatible "
-                f"para paciente {paciente.nombre} (complejidad={complejidad.value}, "
-                f"pediatrico={paciente.es_pediatrico}, aislamiento={paciente.tipo_aislamiento.value})"
+        if not servicios_disponibles:
+            nombres_requeridos = [s.value for s in servicios_requeridos]
+            nombres_hospital = [s.value for s in tipos_servicios]
+            return False, (
+                f"Hospital no tiene servicios compatibles. "
+                f"Requiere: {', '.join(nombres_requeridos)}. "
+                f"Disponibles: {', '.join(nombres_hospital)}"
             )
-            
-            # Construir mensaje explicativo
-            razones = []
-            if paciente.es_pediatrico:
-                razones.append("paciente pediátrico")
-            if complejidad in [ComplejidadEnum.ALTA, ComplejidadEnum.MEDIA]:
-                razones.append(f"complejidad {complejidad.value}")
-            if paciente.tipo_aislamiento in AISLAMIENTOS_SALA_INDIVIDUAL:
-                razones.append(f"aislamiento {paciente.tipo_aislamiento.value}")
-            
-            mensaje = f"No hay camas compatibles para {', '.join(razones) if razones else 'este paciente'}"
-            return False, mensaje
         
-        return True, "El hospital tiene el tipo de cama requerido"
+        # NUEVO: Verificar si hay camas LIBRES en esos servicios
+        cama_compatible = self.buscar_cama_compatible(paciente, hospital_id)
+        
+        if cama_compatible:
+            return True, f"Hay camas libres compatibles en el hospital"
+        else:
+            nombres_requeridos = [s.value for s in servicios_requeridos]
+            return False, (
+                f"Hospital tiene servicios compatibles ({', '.join(nombres_requeridos)}) "
+                f"pero no hay camas libres disponibles actualmente"
+            )
     
     def buscar_camas_en_red(
         self,
@@ -478,14 +477,11 @@ class AsignacionService:
         hospital_origen_id: str
     ) -> ResultadoBusquedaRed:
         """
-        Busca camas compatibles para un paciente en TODOS los hospitales de la red.
-        
-        Esta función se usa cuando el hospital de origen no tiene el tipo de cama
-        que requiere el paciente.
+        Busca camas compatibles en toda la red hospitalaria.
         
         Args:
             paciente_id: ID del paciente
-            hospital_origen_id: ID del hospital de origen (se excluye de la búsqueda)
+            hospital_origen_id: Hospital del que excluir
         
         Returns:
             ResultadoBusquedaRed con las camas encontradas
@@ -495,49 +491,39 @@ class AsignacionService:
             raise PacienteNotFoundError(paciente_id)
         
         # Obtener todos los hospitales excepto el de origen
-        query_hospitales = select(Hospital).where(Hospital.id != hospital_origen_id)
-        hospitales = self.session.exec(query_hospitales).all()
+        query = select(Hospital).where(Hospital.id != hospital_origen_id)
+        hospitales = self.session.exec(query).all()
         
-        camas_encontradas = []
+        camas_encontradas: List[CamaDisponibleRed] = []
         
         for hospital in hospitales:
-            # Verificar si este hospital tiene el tipo de cama
-            tiene_tipo, _ = self.verificar_disponibilidad_tipo_cama_hospital(paciente, hospital.id)
-            if not tiene_tipo:
-                continue
-            
-            # Buscar camas libres compatibles en este hospital
             camas_libres = self.cama_repo.obtener_libres_por_hospital(hospital.id)
-            camas_ordenadas = self._ordenar_camas_por_preferencia(camas_libres, paciente)
             
-            for cama in camas_ordenadas:
+            for cama in camas_libres:
                 if self._es_cama_compatible(cama, paciente):
-                    sala = cama.sala
-                    servicio = sala.servicio if sala else None
+                    servicio = cama.sala.servicio if cama.sala else None
                     
-                    if servicio:
-                        camas_encontradas.append(CamaDisponibleRed(
-                            cama_id=cama.id,
-                            cama_identificador=cama.identificador,
-                            hospital_id=hospital.id,
-                            hospital_nombre=hospital.nombre,
-                            hospital_codigo=hospital.codigo,
-                            servicio_id=servicio.id,
-                            servicio_nombre=servicio.nombre,
-                            servicio_tipo=servicio.tipo.value,
-                            sala_id=sala.id,
-                            sala_numero=sala.numero,
-                            sala_es_individual=sala.es_individual
-                        ))
+                    cama_info = CamaDisponibleRed(
+                        cama_id=cama.id,
+                        cama_identificador=cama.identificador,
+                        hospital_id=hospital.id,
+                        hospital_nombre=hospital.nombre,
+                        hospital_codigo=hospital.codigo,
+                        servicio_id=servicio.id if servicio else "",
+                        servicio_nombre=servicio.nombre if servicio else "",
+                        servicio_tipo=servicio.tipo.value if servicio else "",
+                        sala_id=cama.sala.id if cama.sala else "",
+                        sala_numero=cama.sala.numero if cama.sala else 0,
+                        sala_es_individual=cama.sala.es_individual if cama.sala else False
+                    )
+                    camas_encontradas.append(cama_info)
         
         encontradas = len(camas_encontradas) > 0
-        
-        if encontradas:
-            mensaje = f"Se encontraron {len(camas_encontradas)} cama(s) disponible(s) en la red"
-        else:
-            mensaje = "No se encontraron camas compatibles en ningún hospital de la red"
-        
-        logger.info(f"Búsqueda en red para {paciente.nombre}: {mensaje}")
+        mensaje = (
+            f"Se encontraron {len(camas_encontradas)} camas compatibles en la red"
+            if encontradas else
+            "No se encontraron camas compatibles en otros hospitales"
+        )
         
         return ResultadoBusquedaRed(
             encontradas=encontradas,
@@ -548,122 +534,207 @@ class AsignacionService:
         )
     
     # ============================================
-    # ASIGNACIÓN
+    # ASIGNACIÓN AUTOMÁTICA
     # ============================================
-
-    def ejecutar_asignacion(
-        self,
-        paciente: Paciente,
-        cama: Cama
-    ) -> ResultadoAsignacion:
-        """
-        Ejecuta la asignación de un paciente a una cama.
-        
-               
-        1. Cama destino pasa a TRASLADO_ENTRANTE con botón "completar traslado" y "cancelar"
-        
-        2. Si paciente HOSPITALIZADO (tiene cama_id):
-           - Cama origen pasa a TRASLADO_CONFIRMADO con botón "ver" y "cancelar"
-           
-        3. Si paciente DERIVADO (derivacion_estado == "aceptada"):
-           - Cama origen (en hospital origen) se mantiene en DERIVACION_CONFIRMADA
-           - Se actualiza mensaje para mostrar botón "confirmar egreso"
-        """
-        if cama.estado != EstadoCamaEnum.LIBRE:
-            return ResultadoAsignacion(
-                exito=False,
-                mensaje=f"La cama {cama.identificador} no está disponible"
-            )
-        
-        # Actualizar cama destino a TRASLADO_ENTRANTE
-        cama.estado = EstadoCamaEnum.TRASLADO_ENTRANTE
-        cama.mensaje_estado = f"Esperando a {paciente.nombre}"
-        cama.estado_updated_at = datetime.utcnow()
-        self.session.add(cama)
-        
-        es_derivado = paciente.derivacion_estado == "aceptada"
-        
-        # Si paciente HOSPITALIZADO (tiene cama en este hospital)
-        if paciente.cama_id and not es_derivado:
-            cama_origen = self.cama_repo.obtener_por_id(paciente.cama_id)
-            if cama_origen:
-                cama_origen.estado = EstadoCamaEnum.TRASLADO_CONFIRMADO
-                cama_origen.mensaje_estado = f"Traslado confirmado a {cama.identificador}"
-                cama_origen.cama_asignada_destino = cama.id  # Referencia a cama destino
-                cama_origen.estado_updated_at = datetime.utcnow()
-                self.session.add(cama_origen)
-                logger.info(f"Cama origen {cama_origen.identificador} -> TRASLADO_CONFIRMADO")
-        
-        # Si paciente DERIVADO (tiene cama en hospital origen)
-        elif es_derivado and paciente.cama_origen_derivacion_id:
-            cama_origen_derivacion = self.cama_repo.obtener_por_id(paciente.cama_origen_derivacion_id)
-            if cama_origen_derivacion:
-                # Actualizar mensaje para indicar que puede confirmar egreso
-                cama_origen_derivacion.mensaje_estado = f"Cama asignada en destino - Confirmar egreso"
-                cama_origen_derivacion.cama_asignada_destino = cama.id  # Referencia a cama destino
-                cama_origen_derivacion.estado_updated_at = datetime.utcnow()
-                self.session.add(cama_origen_derivacion)
-                logger.info(f"Cama origen derivación {cama_origen_derivacion.identificador} - actualizado mensaje egreso")
-        
-        # Actualizar paciente
-        paciente.cama_destino_id = cama.id
-        paciente.estado_lista_espera = EstadoListaEsperaEnum.ASIGNADO
-        self.session.add(paciente)
-        
-        from app.services.compatibilidad_service import verificar_y_actualizar_sexo_sala_al_ingreso
-        verificar_y_actualizar_sexo_sala_al_ingreso(self.session, cama, paciente)
-
-        self.session.commit()
-        
-        logger.info(f"Paciente {paciente.nombre} asignado a cama {cama.identificador}")
-        
-        return ResultadoAsignacion(
-            exito=True,
-            mensaje=f"Paciente asignado a cama {cama.identificador}",
-            cama_id=cama.id,
-            paciente_id=paciente.id
-        )
     
     async def ejecutar_asignacion_automatica(
         self,
         hospital_id: str
     ) -> List[ResultadoAsignacion]:
-        """Ejecuta asignación automática para pacientes en espera."""
-        resultados = []
-        pacientes = self.paciente_repo.obtener_en_lista_espera(hospital_id)
+        """Ejecuta asignación automática para un hospital."""
+        from app.services.prioridad_service import gestor_colas_global
         
-        for paciente in pacientes:
-            if paciente.estado_lista_espera == EstadoListaEsperaEnum.ASIGNADO:
+        resultados = []
+        cola = gestor_colas_global.obtener_cola(hospital_id)
+        
+        # Procesar hasta que no haya más asignaciones posibles
+        max_iteraciones = 100
+        iteracion = 0
+        
+        while iteracion < max_iteraciones:
+            iteracion += 1
+            
+            # Obtener siguiente paciente
+            paciente_id = cola.obtener_siguiente()
+            if not paciente_id:
+                break
+            
+            paciente = self.paciente_repo.obtener_por_id(paciente_id)
+            if not paciente:
+                cola.remover(paciente_id)
                 continue
             
-            # Saltar pacientes en espera de evaluación de oxígeno
+            # Verificar que siga en lista de espera
+            if not paciente.en_lista_espera:
+                cola.remover(paciente_id)
+                continue
+            
+            # Verificar si está esperando evaluación de oxígeno
             if paciente.esperando_evaluacion_oxigeno:
                 continue
             
+            # Buscar cama compatible
             cama = self.buscar_cama_compatible(paciente, hospital_id)
             
             if cama:
-                resultado = self.ejecutar_asignacion(paciente, cama)
+                resultado = self.asignar_cama(paciente_id, cama.id)
                 resultados.append(resultado)
                 
                 if resultado.exito:
-                    await manager.send_notification(
-                        {
-                            "tipo": "asignacion_automatica",
-                            "paciente_id": paciente.id,
-                            "paciente_nombre": paciente.nombre,
-                            "cama_id": cama.id,
-                            "cama_identificador": cama.identificador,
-                            "hospital_id": hospital_id,
-                        },
-                        notification_type="asignacion",
-                        play_sound=True
-                    )
+                    cola.remover(paciente_id)
+            else:
+                # No hay cama disponible, seguir con el siguiente
+                break
         
         return resultados
     
+    def asignar_cama(
+        self,
+        paciente_id: str,
+        cama_id: str
+    ) -> ResultadoAsignacion:
+        """Asigna una cama a un paciente."""
+        paciente = self.paciente_repo.obtener_por_id(paciente_id)
+        if not paciente:
+            raise PacienteNotFoundError(paciente_id)
+        
+        cama = self.cama_repo.obtener_por_id(cama_id)
+        if not cama:
+            raise CamaNotFoundError(cama_id)
+        
+        if cama.estado != EstadoCamaEnum.LIBRE:
+            raise CamaNoDisponibleError(f"Cama {cama.identificador} no está libre")
+        
+        # ============================================
+        # GUARDAR INFO PARA TTS ANTES DE MODIFICAR
+        # ============================================
+        servicio_origen_id = None
+        servicio_origen_nombre = None
+        cama_origen_identificador = None
+        servicio_destino_id = None
+        servicio_destino_nombre = None
+        hospital_id = paciente.hospital_id  # <-- CORREGIDO: Definir hospital_id aquí
+        
+        # Obtener info de cama origen ANTES de modificar
+        if paciente.cama_id:
+            cama_origen_temp = self.cama_repo.obtener_por_id(paciente.cama_id)
+            if cama_origen_temp:
+                cama_origen_identificador = cama_origen_temp.identificador
+                if cama_origen_temp.sala and cama_origen_temp.sala.servicio:
+                    servicio_origen_id = cama_origen_temp.sala.servicio.nombre
+                    servicio_origen_nombre = cama_origen_temp.sala.servicio.nombre
+        
+        # Obtener info del servicio destino
+        if cama.sala and cama.sala.servicio:
+            servicio_destino_id = cama.sala.servicio.nombre
+            servicio_destino_nombre = cama.sala.servicio.nombre
+        
+        # Si el paciente ya tiene cama (traslado interno)
+        if paciente.cama_id:
+            cama_origen = self.cama_repo.obtener_por_id(paciente.cama_id)
+            if cama_origen:
+                # Marcar como traslado confirmado
+                cama_origen.estado = EstadoCamaEnum.TRASLADO_CONFIRMADO
+                cama_origen.mensaje_estado = f"Traslado a {cama.identificador}"
+                cama_origen.cama_asignada_destino = cama_id
+                cama_origen.estado_updated_at = datetime.utcnow()
+                self.session.add(cama_origen)
+        
+        # Actualizar cama destino
+        cama.estado = EstadoCamaEnum.TRASLADO_ENTRANTE
+        cama.mensaje_estado = f"Esperando a {paciente.nombre}"
+        cama.estado_updated_at = datetime.utcnow()
+        self.session.add(cama)
+        
+        # Guardar servicio destino
+        if cama.sala and cama.sala.servicio:
+            paciente.servicio_destino = cama.sala.servicio.nombre
+        
+        # Actualizar paciente
+        paciente.cama_destino_id = cama_id
+        paciente.estado_lista_espera = EstadoListaEsperaEnum.ASIGNADO
+        paciente.requiere_nueva_cama = False
+        self.session.add(paciente)
+        
+        self.session.commit()
+
+        logger.info(f"Cama {cama.identificador} asignada a {paciente.nombre}")
+
+        # ============================================
+        # BROADCAST TTS
+        # ============================================
+        try:
+            evento_tts = crear_evento_asignacion(
+                cama_destino_identificador=cama.identificador,
+                paciente_nombre=paciente.nombre,
+                servicio_origen_id=servicio_origen_id,
+                servicio_origen_nombre=servicio_origen_nombre,
+                servicio_destino_id=servicio_destino_id,
+                servicio_destino_nombre=servicio_destino_nombre or "destino",
+                cama_origen_identificador=cama_origen_identificador,
+                hospital_id=hospital_id,  # <-- Ahora sí está definido
+                paciente_id=str(paciente.id),
+                cama_id=str(cama.id)
+            )
+            
+            # Broadcast asíncrono
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(manager.broadcast(evento_tts))
+            except RuntimeError:
+                asyncio.run(manager.broadcast(evento_tts))
+                
+            logger.info(f"Evento TTS de asignación emitido")
+        except Exception as e:
+            logger.warning(f"Error emitiendo evento TTS: {e}")
+            # Fallback sin TTS
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(manager.broadcast({
+                    "tipo": "asignacion_completada",
+                    "hospital_id": hospital_id,
+                    "reload": True,
+                    "play_sound": True
+                }))
+            except:
+                pass
+        
+        return ResultadoAsignacion(
+            exito=True,
+            mensaje=f"Cama {cama.identificador} asignada",
+            cama_id=cama_id,
+            paciente_id=paciente_id
+        )
+    
+    def asignar_manual_desde_lista(
+        self,
+        paciente_id: str,
+        cama_id: str
+    ) -> ResultadoAsignacion:
+        """Asigna manualmente un paciente de lista de espera a una cama."""
+        return self.asignar_cama(paciente_id, cama_id)
+    
+    def asignar_manual_desde_cama(
+        self,
+        paciente_id: str,
+        cama_destino_id: str
+    ) -> ResultadoAsignacion:
+        """Inicia traslado manual desde una cama a otra."""
+        paciente = self.paciente_repo.obtener_por_id(paciente_id)
+        if not paciente:
+            raise PacienteNotFoundError(paciente_id)
+        
+        if not paciente.cama_id:
+            raise ValidationError("El paciente no tiene cama asignada")
+        
+        # Agregar a lista de espera primero
+        self.agregar_a_cola(paciente)
+        
+        # Luego asignar la cama
+        return self.asignar_cama(paciente_id, cama_destino_id)
+    
     # ============================================
-    # LISTA DE ESPERA
+    # GESTIÓN DE COLA
     # ============================================
     
     def agregar_a_cola(self, paciente: Paciente) -> None:
@@ -738,12 +809,16 @@ class AsignacionService:
         if paciente.cama_id:
             cama = self.cama_repo.obtener_por_id(paciente.cama_id)
             if cama:
-                cama.estado = EstadoCamaEnum.CAMA_EN_ESPERA
-                cama.mensaje_estado = "Paciente requiere nueva cama"
+                cama.estado = EstadoCamaEnum.OCUPADA
+                cama.mensaje_estado = None
                 cama.estado_updated_at = datetime.utcnow()
                 self.session.add(cama)
         
         self.remover_de_cola(paciente)
+        
+        # Limpiar flags
+        paciente.requiere_nueva_cama = False
+        self.session.add(paciente)
         
         self.session.commit()
         
@@ -802,10 +877,39 @@ class AsignacionService:
         paciente: 'Paciente',
         cama_actual: 'Cama'
     ) -> bool:
-        """Verifica si el paciente necesita cambiar de cama."""
+        """
+        Verifica si el paciente necesita cambiar de cama.
+        
+        PROBLEMA 1 CORREGIDO: Ahora verifica si la complejidad del paciente
+        es compatible con la complejidad de la cama actual antes de decidir
+        que requiere nueva cama.
+        """
         from app.services.compatibilidad_service import CompatibilidadService
         
         compatibilidad_service = CompatibilidadService(self.session)
+        
+        # Obtener complejidades
+        complejidad_paciente = self.calcular_complejidad(paciente)
+        complejidad_cama = self.obtener_complejidad_cama(cama_actual)
+        
+        nivel_paciente = _obtener_nivel_complejidad(complejidad_paciente)
+        nivel_cama = _obtener_nivel_complejidad(complejidad_cama)
+        
+        # Si el paciente solo tiene casos especiales y la complejidad de la cama
+        # es >= a la del paciente, NO requiere nueva cama
+        tiene_solo_casos_especiales = (
+            paciente.tiene_casos_especiales() and
+            not paciente.get_requerimientos_lista("requerimientos_uci") and
+            not paciente.get_requerimientos_lista("requerimientos_uti") and
+            not paciente.get_requerimientos_lista("requerimientos_baja")
+        )
+        
+        if tiene_solo_casos_especiales and nivel_cama >= nivel_paciente:
+            logger.info(
+                f"Paciente {paciente.nombre}: solo tiene casos especiales y "
+                f"cama actual es compatible (nivel cama: {nivel_cama}, nivel paciente: {nivel_paciente})"
+            )
+            return False
         
         # Verificación completa de compatibilidad
         es_compatible, problemas = compatibilidad_service.verificar_compatibilidad_completa(
@@ -854,12 +958,42 @@ class AsignacionService:
         paciente: 'Paciente',
         cama_actual: 'Cama'
     ) -> Tuple['EstadoCamaEnum', Optional[str]]:
-        """Evalúa qué estado debe tener la cama después de una reevaluación."""
+        """
+        Evalúa qué estado debe tener la cama después de una reevaluación.
+        
+        PROBLEMA 1 CORREGIDO: Verifica compatibilidad de complejidad 
+        antes de cambiar a CAMA_EN_ESPERA.
+        """
         from app.services.compatibilidad_service import CompatibilidadService
         from app.models.enums import EstadoCamaEnum
         
         if self.puede_sugerir_alta(paciente):
             return EstadoCamaEnum.ALTA_SUGERIDA, "Se sugiere evaluar alta"
+        
+        # Obtener complejidades
+        complejidad_paciente = self.calcular_complejidad(paciente)
+        complejidad_cama = self.obtener_complejidad_cama(cama_actual)
+        
+        nivel_paciente = _obtener_nivel_complejidad(complejidad_paciente)
+        nivel_cama = _obtener_nivel_complejidad(complejidad_cama)
+        
+        # PROBLEMA 1: Si solo tiene casos especiales y la cama es compatible, quedarse
+        tiene_solo_casos_especiales = (
+            paciente.tiene_casos_especiales() and
+            not paciente.get_requerimientos_lista("requerimientos_uci") and
+            not paciente.get_requerimientos_lista("requerimientos_uti") and
+            not paciente.get_requerimientos_lista("requerimientos_baja")
+        )
+        
+        if tiene_solo_casos_especiales:
+            if nivel_cama >= nivel_paciente:
+                logger.info(
+                    f"Paciente {paciente.nombre}: solo casos especiales, "
+                    f"cama compatible - permanece OCUPADA"
+                )
+                paciente.requiere_nueva_cama = False
+                self.session.add(paciente)
+                return EstadoCamaEnum.OCUPADA, None
         
         compatibilidad_service = CompatibilidadService(self.session)
         es_compatible, problemas = compatibilidad_service.verificar_compatibilidad_completa(
@@ -867,6 +1001,21 @@ class AsignacionService:
         )
         
         if not es_compatible:
+            # VERIFICAR si el problema es solo de complejidad SUPERIOR (no inferior)
+            # Si está en cama de mayor complejidad y no hay alternativas, quedarse
+            if nivel_cama >= nivel_paciente:
+                # Verificar si hay camas del nivel correcto disponibles
+                if not compatibilidad_service.hay_camas_nivel_correcto_disponibles(
+                    paciente, paciente.hospital_id
+                ):
+                    logger.info(
+                        f"Paciente {paciente.nombre}: cama de complejidad superior "
+                        f"pero no hay alternativas - permanece OCUPADA"
+                    )
+                    paciente.requiere_nueva_cama = False
+                    self.session.add(paciente)
+                    return EstadoCamaEnum.OCUPADA, None
+            
             paciente.requiere_nueva_cama = True
             self.session.add(paciente)
             mensaje = "Paciente requiere nueva cama: " + "; ".join(problemas)
@@ -881,3 +1030,28 @@ class AsignacionService:
         paciente.requiere_nueva_cama = False
         self.session.add(paciente)
         return EstadoCamaEnum.OCUPADA, None
+    
+    def verificar_compatibilidad_cama_actual(
+        self,
+        paciente: 'Paciente',
+        cama_actual: 'Cama'
+    ) -> bool:
+        """
+        Verifica si la cama actual sigue siendo compatible con el paciente.
+        
+        Usado después de finalizar pausa de oxígeno o timers.
+        
+        Returns:
+            True si la cama sigue siendo compatible
+        """
+        complejidad_paciente = self.calcular_complejidad(paciente)
+        complejidad_cama = self.obtener_complejidad_cama(cama_actual)
+        
+        nivel_paciente = _obtener_nivel_complejidad(complejidad_paciente)
+        nivel_cama = _obtener_nivel_complejidad(complejidad_cama)
+        
+        # Si el nivel de la cama es >= al del paciente, es compatible
+        if nivel_cama >= nivel_paciente:
+            return True
+        
+        return False

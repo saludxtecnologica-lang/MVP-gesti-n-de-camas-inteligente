@@ -10,6 +10,7 @@ import type {
 } from '../types'
 import * as api from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 // ============================================
 // TIPOS DEL CONTEXT
@@ -28,6 +29,13 @@ interface AppContextType {
   wsConnected: boolean;
   dataVersion: number;
   
+  // ============================================
+  // NUEVO: Estado TTS
+  // ============================================
+  servicioSeleccionadoId: string | null;
+  ttsHabilitado: boolean;
+  ttsDisponible: boolean;
+  
   // Acciones
   setHospitalSeleccionado: (hospital: Hospital | null) => void;
   recargarCamas: () => Promise<void>;
@@ -38,6 +46,13 @@ interface AppContextType {
   showAlert: (tipo: AlertState['tipo'], mensaje: string) => void;
   hideAlert: () => void;
   testSound: () => void;
+  
+  // ============================================
+  // NUEVO: Acciones TTS
+  // ============================================
+  setServicioSeleccionadoId: (id: string | null) => void;
+  setTtsHabilitado: (habilitado: boolean) => void;
+  testTts: () => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -58,6 +73,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [alert, setAlert] = useState<AlertState | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
 
+  // ============================================
+  // NUEVO: Estado TTS
+  // ============================================
+  const [servicioSeleccionadoId, setServicioSeleccionadoId] = useState<string | null>(null);
+  const [ttsHabilitado, setTtsHabilitado] = useState(true);
+
   // Ref para acceder al hospital actual sin causar re-renders del callback
   const hospitalRef = useRef<Hospital | null>(null);
   
@@ -68,6 +89,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     hospitalRef.current = hospitalSeleccionado;
   }, [hospitalSeleccionado]);
+
+  // ============================================
+  // HOOK TTS
+  // ============================================
+  const { 
+    procesarEvento: procesarEventoTTS, 
+    probar: testTts,
+    disponible: ttsDisponible 
+  } = useTextToSpeech({
+    servicioSeleccionadoId,
+    habilitado: ttsHabilitado
+  });
+
+  // Ref para TTS
+  const procesarEventoTTSRef = useRef(procesarEventoTTS);
+  useEffect(() => {
+    procesarEventoTTSRef.current = procesarEventoTTS;
+  }, [procesarEventoTTS]);
 
   // ============================================
   // FUNCIÓN DE RECARGA DIRECTA (para WebSocket)
@@ -128,10 +167,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ============================================
-  // HANDLER DE WEBSOCKET
+  // HANDLER DE WEBSOCKET (MODIFICADO PARA TTS)
   // ============================================
   const handleWebSocketMessage = useCallback((event: WebSocketEvent) => {
     console.log('[WS] Mensaje recibido:', event.tipo, 'reload:', event.reload);
+    
+    // ============================================
+    // NUEVO: Procesar evento TTS si corresponde
+    // ============================================
+    if (event.tts_habilitado) {
+      procesarEventoTTSRef.current(event);
+    }
     
     if (event.reload === true) {
       const eventosRecarga = [
@@ -152,7 +198,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         'cama_bloqueada',
         'cama_desbloqueada',
         'evaluacion_oxigeno_completada',
-        'camas_liberadas'
+        'camas_liberadas',
+        // NUEVO: Agregar derivación aceptada
+        'derivacion_aceptada'
       ];
       
       if (eventosRecarga.includes(event.tipo)) {
@@ -338,6 +386,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     alert,
     wsConnected,
     dataVersion,
+    // NUEVO: TTS
+    servicioSeleccionadoId,
+    ttsHabilitado,
+    ttsDisponible,
+    // Acciones
     setHospitalSeleccionado,
     recargarCamas,
     recargarListaEspera,
@@ -346,7 +399,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setConfiguracion,
     showAlert,
     hideAlert,
-    testSound
+    testSound,
+    // NUEVO: Acciones TTS
+    setServicioSeleccionadoId,
+    setTtsHabilitado,
+    testTts
   };
 
   return (

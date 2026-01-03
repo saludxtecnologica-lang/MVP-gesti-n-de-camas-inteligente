@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session
 from typing import Optional, List
 from datetime import datetime
+from fastapi import HTTPException, status
 import os
 import uuid
 import json
@@ -39,6 +40,7 @@ from app.services.prioridad_service import PrioridadService
 from app.services.derivacion_service import DerivacionService
 from app.utils.helpers import crear_paciente_response
 from sqlmodel import select
+from app.services.prioridad_service import ColaPrioridad
 
 router = APIRouter()
 logger = logging.getLogger("gestion_camas.pacientes")
@@ -186,13 +188,39 @@ async def crear_paciente(
         motivo_monitorizacion=paciente_data.motivo_monitorizacion,
         justificacion_monitorizacion=paciente_data.justificacion_monitorizacion,
         procedimiento_invasivo=paciente_data.procedimiento_invasivo,
+        preparacion_quirurgica_detalle=paciente_data.preparacion_quirurgica_detalle,
         tipo_paciente=paciente_data.tipo_paciente,
         hospital_id=paciente_data.hospital_id,
         en_lista_espera=True,
         timestamp_lista_espera=datetime.utcnow(),
+        observacion_tiempo_horas=paciente_data.observacion_tiempo_horas,
+        monitorizacion_tiempo_horas=paciente_data.monitorizacion_tiempo_horas,
+        motivo_ingreso_ambulatorio=paciente_data.motivo_ingreso_ambulatorio,
     )
     
     paciente.complejidad_requerida = service.calcular_complejidad(paciente)
+    
+    # ============================================
+    # INICIAR TIMERS SI SE ESPECIFICARON
+    # ============================================
+    
+    # Timer de observación clínica
+    if paciente_data.observacion_tiempo_horas and paciente_data.observacion_tiempo_horas > 0:
+        paciente.observacion_tiempo_horas = paciente_data.observacion_tiempo_horas
+        paciente.observacion_inicio = datetime.utcnow()
+        logger.info(
+            f"Timer de observación iniciado para {paciente.nombre}: "
+            f"{paciente_data.observacion_tiempo_horas} horas"
+        )
+    
+    # Timer de monitorización
+    if paciente_data.monitorizacion_tiempo_horas and paciente_data.monitorizacion_tiempo_horas > 0:
+        paciente.monitorizacion_tiempo_horas = paciente_data.monitorizacion_tiempo_horas
+        paciente.monitorizacion_inicio = datetime.utcnow()
+        logger.info(
+            f"Timer de monitorización iniciado para {paciente.nombre}: "
+            f"{paciente_data.monitorizacion_tiempo_horas} horas"
+        )
     
     session.add(paciente)
     session.commit()
@@ -246,6 +274,8 @@ def obtener_paciente(paciente_id: str, session: Session = Depends(get_session)):
     
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    
+    mensaje_broadcast = "Paciente actualizado"
     
     return crear_paciente_response(paciente)
 
@@ -339,12 +369,146 @@ async def actualizar_paciente(
         paciente.justificacion_monitorizacion = paciente_data.justificacion_monitorizacion
     if paciente_data.procedimiento_invasivo is not None:
         paciente.procedimiento_invasivo = paciente_data.procedimiento_invasivo
+    if paciente_data.preparacion_quirurgica_detalle is not None:
+        paciente.preparacion_quirurgica_detalle = paciente_data.preparacion_quirurgica_detalle
+
     
-    if paciente_data.alta_solicitada is not None:
-        paciente.alta_solicitada = paciente_data.alta_solicitada
-    if paciente_data.alta_motivo is not None:
-        paciente.alta_motivo = paciente_data.alta_motivo
+    # ============================================
+    # Timer observación - LÓGICA CORREGIDA
+    # ============================================
     
+    # Obtener los requerimientos de baja complejidad finales
+    req_baja_finales = []
+    if paciente_data.requerimientos_baja is not None:
+        req_baja_finales = paciente_data.requerimientos_baja
+    else:
+        req_baja_finales = paciente.get_requerimientos_lista('requerimientos_baja')
+    
+    # Verificar si tiene el requerimiento "Observación clínica" marcado
+    tiene_observacion_clinica = 'Observación clínica' in req_baja_finales
+    
+    if tiene_observacion_clinica:
+        # El requerimiento ESTÁ marcado
+        if paciente_data.observacion_tiempo_horas is not None:
+            if paciente_data.observacion_tiempo_horas > 0:
+                # Hay un tiempo especificado (positivo)
+                if paciente.observacion_tiempo_horas != paciente_data.observacion_tiempo_horas:
+                    # El tiempo CAMBIÓ - reiniciar timer
+                    paciente.observacion_tiempo_horas = paciente_data.observacion_tiempo_horas
+                    paciente.observacion_inicio = datetime.utcnow()
+                    logger.info(
+                        f"Timer de observación reiniciado para {paciente.nombre}: "
+                        f"{paciente_data.observacion_tiempo_horas} horas"
+                    )
+                elif paciente.observacion_inicio is None:
+                    # El tiempo es el mismo pero NO hay inicio - iniciar ahora
+                    paciente.observacion_inicio = datetime.utcnow()
+                    logger.info(
+                        f"Timer de observación iniciado para {paciente.nombre}: "
+                        f"{paciente.observacion_tiempo_horas} horas"
+                    )
+                else:
+                    # El tiempo es el mismo Y ya hay inicio - mantener sin cambios
+                    logger.debug(f"Timer de observación mantenido para {paciente.nombre}")
+            elif paciente_data.observacion_tiempo_horas == 0:
+                # Se envió tiempo = 0, esto significa que se desmarcó el requerimiento
+                # o se quiere desactivar el timer manualmente
+                paciente.observacion_tiempo_horas = None
+                paciente.observacion_inicio = None
+                logger.info(f"Timer de observación desactivado para {paciente.nombre} (tiempo=0)")
+        # Si observacion_tiempo_horas es None en paciente_data, mantener el timer existente
+    else:
+        # El requerimiento NO está marcado - limpiar todo el timer
+        if paciente.observacion_tiempo_horas is not None or paciente.observacion_inicio is not None:
+            paciente.observacion_tiempo_horas = None
+            paciente.observacion_inicio = None
+            paciente.motivo_observacion = None
+            paciente.justificacion_observacion = None
+            logger.info(f"Timer de observación limpiado para {paciente.nombre} (requerimiento desmarcado)")
+
+    # ============================================
+    # Timer monitorización - LÓGICA CORREGIDA
+    # ============================================
+    
+    # Obtener los requerimientos UTI finales
+    req_uti_finales = []
+    if paciente_data.requerimientos_uti is not None:
+        req_uti_finales = paciente_data.requerimientos_uti
+    else:
+        req_uti_finales = paciente.get_requerimientos_lista('requerimientos_uti')
+    
+    # Verificar si tiene el requerimiento "Monitorización continua" marcado
+    tiene_monitorizacion = 'Monitorización continua' in req_uti_finales
+    
+    if tiene_monitorizacion:
+        # El requerimiento ESTÁ marcado
+        if paciente_data.monitorizacion_tiempo_horas is not None:
+            if paciente_data.monitorizacion_tiempo_horas > 0:
+                # Hay un tiempo especificado (positivo)
+                if paciente.monitorizacion_tiempo_horas != paciente_data.monitorizacion_tiempo_horas:
+                    # El tiempo CAMBIÓ - reiniciar timer
+                    paciente.monitorizacion_tiempo_horas = paciente_data.monitorizacion_tiempo_horas
+                    paciente.monitorizacion_inicio = datetime.utcnow()
+                    logger.info(
+                        f"Timer de monitorización reiniciado para {paciente.nombre}: "
+                        f"{paciente_data.monitorizacion_tiempo_horas} horas"
+                    )
+                elif paciente.monitorizacion_inicio is None:
+                    # El tiempo es el mismo pero NO hay inicio - iniciar ahora
+                    paciente.monitorizacion_inicio = datetime.utcnow()
+                    logger.info(
+                        f"Timer de monitorización iniciado para {paciente.nombre}: "
+                        f"{paciente.monitorizacion_tiempo_horas} horas"
+                    )
+                else:
+                    # El tiempo es el mismo Y ya hay inicio - mantener sin cambios
+                    logger.debug(f"Timer de monitorización mantenido para {paciente.nombre}")
+            elif paciente_data.monitorizacion_tiempo_horas == 0:
+                # Se envió tiempo = 0, esto significa que se desmarcó el requerimiento
+                paciente.monitorizacion_tiempo_horas = None
+                paciente.monitorizacion_inicio = None
+                logger.info(f"Timer de monitorización desactivado para {paciente.nombre} (tiempo=0)")
+        # Si monitorizacion_tiempo_horas es None en paciente_data, mantener el timer existente
+    else:
+        # El requerimiento NO está marcado - limpiar todo el timer
+        if paciente.monitorizacion_tiempo_horas is not None or paciente.monitorizacion_inicio is not None:
+            paciente.monitorizacion_tiempo_horas = None
+            paciente.monitorizacion_inicio = None
+            paciente.motivo_monitorizacion = None
+            paciente.justificacion_monitorizacion = None
+            logger.info(f"Timer de monitorización limpiado para {paciente.nombre} (requerimiento desmarcado)")
+    
+    # ============================================
+    # MANEJO DE FALLECIMIENTO
+    # ============================================
+    if paciente_data.fallecido is not None:
+        if paciente_data.fallecido and not paciente.fallecido:
+            # Registrar fallecimiento
+            paciente.fallecido = True
+            paciente.causa_fallecimiento = paciente_data.causa_fallecimiento
+            paciente.fallecido_at = datetime.utcnow()
+            
+            # Guardar estado anterior de la cama para poder revertir
+            if paciente.cama_id:
+                cama = cama_repo.obtener_por_id(paciente.cama_id)
+                if cama:
+                    paciente.estado_cama_anterior_fallecimiento = cama.estado.value
+                    cama.estado = EstadoCamaEnum.FALLECIDO
+                    cama.mensaje_estado = "Paciente fallecido - Cuidados postmortem"
+                    cama.estado_updated_at = datetime.utcnow()
+                    session.add(cama)
+            
+            logger.info(f"Paciente {paciente.nombre} marcado como fallecido. Causa: {paciente_data.causa_fallecimiento}")
+            mensaje_broadcast = "Paciente registrado como fallecido"
+            
+        elif not paciente_data.fallecido and paciente.fallecido:
+            # Cancelar fallecimiento (solo desde modo manual)
+            # Este caso se maneja en el endpoint específico de cancelar fallecimiento
+            pass
+    
+    if paciente_data.causa_fallecimiento is not None and paciente.fallecido:
+        paciente.causa_fallecimiento = paciente_data.causa_fallecimiento
+        
     paciente.updated_at = datetime.utcnow()
     paciente.complejidad_requerida = service.calcular_complejidad(paciente)
     
@@ -362,11 +526,15 @@ async def actualizar_paciente(
         requerimientos_oxigeno_nuevos
     )
     
+    # Inicializar mensaje_broadcast
     mensaje_broadcast = "Paciente actualizado"
+    if paciente.fallecido:
+        mensaje_broadcast = "Paciente registrado como fallecido"
+
     tiempo_espera = obtener_tiempo_espera_oxigeno(session)
     
-    # Si el paciente tiene cama asignada
-    if paciente.cama_id:
+    # Si el paciente tiene cama asignada Y NO está fallecido
+    if paciente.cama_id and not paciente.fallecido:
         cama = cama_repo.obtener_por_id(paciente.cama_id)
         
         if cama:
@@ -686,6 +854,177 @@ async def cancelar_busqueda(
     except PacienteNotFoundError:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
+@router.post("/{paciente_id}/cancelar-y-volver", summary="Cancelar búsqueda y volver a cama")
+async def cancelar_busqueda_y_volver_a_cama(
+    paciente_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Cancela la búsqueda de cama para un paciente y lo devuelve a su cama actual.
+    
+    Solo funciona si el paciente tiene una cama asignada (cama_id).
+    - Remueve al paciente de la lista de espera
+    - Cambia el estado de la cama de CAMA_EN_ESPERA a OCUPADA
+    - Limpia cama_destino_id si existe
+    
+    Retorna error si el paciente no tiene cama asignada.
+    """
+    from sqlmodel import select
+    
+    # Buscar paciente
+    paciente = session.exec(select(Paciente).where(Paciente.id == paciente_id)).first()
+    if not paciente:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Paciente no encontrado"
+        )
+    
+    # Verificar que tiene cama asignada
+    if not paciente.cama_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El paciente no tiene cama asignada. Use el endpoint de eliminar en su lugar."
+        )
+    
+    try:
+        # Obtener la cama actual
+        cama = session.exec(select(Cama).where(Cama.id == paciente.cama_id)).first()
+        
+        # Remover de lista de espera
+        cola_prioridad = ColaPrioridad(session)
+        if cola_prioridad.esta_en_cola(paciente_id):
+            cola_prioridad.remover_paciente(paciente_id)
+            logger.info(f"Paciente {paciente_id} removido de lista de espera")
+        
+        # Si tenía cama destino asignada, liberarla
+        if paciente.cama_destino_id:
+            cama_destino = session.exec(select(Cama).where(Cama.id == paciente.cama_destino_id)).first()
+            if cama_destino and cama_destino.estado == EstadoCamaEnum.TRASLADO_ENTRANTE:
+                cama_destino.estado = EstadoCamaEnum.LIBRE
+                cama_destino.paciente_entrante_id = None
+                session.add(cama_destino)
+                logger.info(f"Cama destino {cama_destino.identificador} liberada")
+            paciente.cama_destino_id = None
+        
+        # Cambiar estado de la cama actual a OCUPADA
+        if cama:
+            cama.estado = EstadoCamaEnum.OCUPADA
+            session.add(cama)
+            logger.info(f"Cama {cama.identificador} cambiada a OCUPADA")
+        
+        # Actualizar estado del paciente
+        paciente.en_lista_espera = False
+        session.add(paciente)
+        
+        session.commit()
+        
+        # Notificar cambios via WebSocket
+        try:
+            await manager.broadcast({
+                "tipo": "cama_actualizada",
+                "cama_id": str(cama.id) if cama else None,
+                "estado": "ocupada",
+                "reload": True
+            })
+        except Exception as ws_error:
+            logger.warning(f"Error al notificar WebSocket: {ws_error}")
+        
+        return {
+            "message": f"Búsqueda cancelada. Paciente volvió a cama {cama.identificador if cama else 'anterior'}",
+            "paciente_id": paciente_id,
+            "cama_id": str(cama.id) if cama else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error al cancelar búsqueda: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al procesar: {str(e)}"
+        )
+
+
+@router.delete("/{paciente_id}/eliminar", summary="Eliminar paciente sin cama del sistema")
+async def eliminar_paciente_sin_cama(
+    paciente_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Elimina un paciente que NO tiene cama asignada del sistema.
+    
+    Solo funciona si el paciente NO tiene cama (cama_id es None).
+    - Remueve al paciente de la lista de espera
+    - Elimina el registro del paciente de la base de datos
+    
+    Retorna error si el paciente tiene cama asignada (usar cancelar-y-volver en su lugar).
+    """
+    from sqlmodel import select
+    
+    # Buscar paciente
+    paciente = session.exec(select(Paciente).where(Paciente.id == paciente_id)).first()
+    if not paciente:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Paciente no encontrado"
+        )
+    
+    # Verificar que NO tiene cama asignada
+    if paciente.cama_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El paciente tiene cama asignada. Use el endpoint de cancelar-y-volver en su lugar."
+        )
+    
+    nombre_paciente = paciente.nombre  # Guardar para el mensaje
+    
+    try:
+        # Remover de lista de espera si está
+        cola_prioridad = ColaPrioridad(session)
+        if cola_prioridad.esta_en_cola(paciente_id):
+            cola_prioridad.remover_paciente(paciente_id)
+            logger.info(f"Paciente {paciente_id} removido de lista de espera")
+        
+        # Si tenía cama destino asignada (aunque no debería), liberarla
+        if paciente.cama_destino_id:
+            cama_destino = session.exec(select(Cama).where(Cama.id == paciente.cama_destino_id)).first()
+            if cama_destino:
+                cama_destino.estado = EstadoCamaEnum.LIBRE
+                cama_destino.paciente_entrante_id = None
+                session.add(cama_destino)
+        
+        # Eliminar el paciente
+        session.delete(paciente)
+        session.commit()
+        
+        logger.info(f"Paciente {nombre_paciente} ({paciente_id}) eliminado del sistema")
+        
+        # Notificar cambios via WebSocket
+        try:
+            await manager.broadcast({
+                "tipo": "paciente_eliminado",
+                "paciente_id": paciente_id,
+                "reload": True
+            })
+        except Exception as ws_error:
+            logger.warning(f"Error al notificar WebSocket: {ws_error}")
+        
+        return {
+            "message": f"Paciente {nombre_paciente} eliminado del sistema",
+            "paciente_id": paciente_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error al eliminar paciente: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al procesar: {str(e)}"
+        )
+
 
 @router.post("/{paciente_id}/omitir-pausa-oxigeno", response_model=MessageResponse)
 async def omitir_pausa_oxigeno(
@@ -905,3 +1244,250 @@ def obtener_documento(
         "filename": paciente.documento_adjunto,
         "url": f"/uploads/{paciente.documento_adjunto}"
     }
+
+@router.get("/{paciente_id}/estado-timers")
+def obtener_estado_timers(
+    paciente_id: str,
+    session: Session = Depends(get_session)
+):
+    '''
+    Obtiene el estado de los timers de monitorización y observación de un paciente.
+      
+    Retorna tiempo total, tiempo transcurrido, tiempo restante y estado.
+    '''
+    repo = PacienteRepository(session)
+    paciente = repo.obtener_por_id(paciente_id)
+    
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    
+    ahora = datetime.utcnow()
+    
+    # Calcular estado del timer de observación
+    observacion_info = None
+    if paciente.observacion_tiempo_horas and paciente.observacion_inicio:
+        tiempo_total_seg = paciente.observacion_tiempo_horas * 3600
+        tiempo_transcurrido = (ahora - paciente.observacion_inicio).total_seconds()
+        tiempo_restante = max(0, tiempo_total_seg - tiempo_transcurrido)
+        
+        observacion_info = {
+            "activo": True,
+            "tiempo_total_horas": paciente.observacion_tiempo_horas,
+            "tiempo_total_segundos": tiempo_total_seg,
+            "tiempo_transcurrido_segundos": int(tiempo_transcurrido),
+            "tiempo_restante_segundos": int(tiempo_restante),
+            "porcentaje_completado": min(100, (tiempo_transcurrido / tiempo_total_seg) * 100),
+            "inicio": paciente.observacion_inicio.isoformat(),
+            "completado": tiempo_restante <= 0,
+            "motivo": paciente.motivo_observacion,
+            "justificacion": paciente.justificacion_observacion
+        }
+    else:
+        observacion_info = {
+            "activo": False,
+            "tiempo_total_horas": None,
+            "tiempo_restante_segundos": None,
+            "completado": None
+        }
+    
+    # Calcular estado del timer de monitorización
+    monitorizacion_info = None
+    if paciente.monitorizacion_tiempo_horas and paciente.monitorizacion_inicio:
+        tiempo_total_seg = paciente.monitorizacion_tiempo_horas * 3600
+        tiempo_transcurrido = (ahora - paciente.monitorizacion_inicio).total_seconds()
+        tiempo_restante = max(0, tiempo_total_seg - tiempo_transcurrido)
+        
+        monitorizacion_info = {
+            "activo": True,
+            "tiempo_total_horas": paciente.monitorizacion_tiempo_horas,
+            "tiempo_total_segundos": tiempo_total_seg,
+            "tiempo_transcurrido_segundos": int(tiempo_transcurrido),
+            "tiempo_restante_segundos": int(tiempo_restante),
+            "porcentaje_completado": min(100, (tiempo_transcurrido / tiempo_total_seg) * 100),
+            "inicio": paciente.monitorizacion_inicio.isoformat(),
+            "completado": tiempo_restante <= 0,
+            "motivo": paciente.motivo_monitorizacion,
+            "justificacion": paciente.justificacion_monitorizacion
+        }
+    else:
+        monitorizacion_info = {
+            "activo": False,
+            "tiempo_total_horas": None,
+            "tiempo_restante_segundos": None,
+            "completado": None
+        }
+    
+    return {
+        "paciente_id": paciente_id,
+        "paciente_nombre": paciente.nombre,
+        "observacion": observacion_info,
+        "monitorizacion": monitorizacion_info
+    }
+
+"""
+Endpoint de Información de Traslado de Paciente
+AGREGAR A: app/api/pacientes.py (al final del archivo)
+
+Este endpoint devuelve información completa del traslado
+incluyendo teléfonos de servicios de origen y destino.
+
+ACTUALIZADO: Los teléfonos de urgencias y ambulatorio se obtienen
+del hospital correspondiente, no de una configuración global.
+"""
+
+from pydantic import BaseModel
+from typing import Optional
+
+# ============================================
+# SCHEMA DE RESPUESTA
+# ============================================
+class InfoTrasladoResponse(BaseModel):
+    """Información de traslado de un paciente con teléfonos."""
+    # Origen
+    origen_tipo: Optional[str] = None
+    origen_hospital_nombre: Optional[str] = None
+    origen_hospital_codigo: Optional[str] = None
+    origen_servicio_nombre: Optional[str] = None
+    origen_servicio_telefono: Optional[str] = None
+    origen_cama_identificador: Optional[str] = None
+    
+    # Destino
+    destino_servicio_nombre: Optional[str] = None
+    destino_servicio_telefono: Optional[str] = None
+    destino_cama_identificador: Optional[str] = None
+    destino_hospital_nombre: Optional[str] = None
+    
+    # Estado
+    tiene_cama_origen: bool = False
+    tiene_cama_destino: bool = False
+    en_traslado: bool = False
+
+
+@router.get("/{paciente_id}/info-traslado", response_model=InfoTrasladoResponse)
+def obtener_info_traslado(
+    paciente_id: str,
+    session: Session = Depends(get_session)
+):
+    """
+    Obtiene información completa de traslado de un paciente,
+    incluyendo teléfonos de servicios de origen y destino.
+    
+    Los teléfonos de urgencias y ambulatorio se obtienen del hospital
+    correspondiente al paciente, ya que cada hospital tiene sus propios números.
+    
+    Para pacientes derivados, el teléfono de origen es del hospital de origen.
+    """
+    from app.repositories.hospital_repo import HospitalRepository
+    
+    # Obtener paciente
+    paciente_repo = PacienteRepository(session)
+    paciente = paciente_repo.obtener_por_id(paciente_id)
+    
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    
+    # Obtener hospital actual del paciente
+    hospital_repo = HospitalRepository(session)
+    hospital_actual = hospital_repo.obtener_por_id(paciente.hospital_id) if paciente.hospital_id else None
+    
+    # Inicializar respuesta
+    info = InfoTrasladoResponse()
+    
+    # ============================================
+    # DETERMINAR ORIGEN
+    # ============================================
+    
+    # Caso 1: Paciente derivado de otro hospital
+    if paciente.tipo_paciente == TipoPacienteEnum.DERIVADO or paciente.derivacion_estado == "aceptada":
+        info.origen_tipo = "derivado"
+        
+        # Buscar información del hospital de origen desde la cama de derivación
+        if paciente.cama_origen_derivacion_id:
+            cama_repo = CamaRepository(session)
+            cama_origen = cama_repo.obtener_por_id(paciente.cama_origen_derivacion_id)
+            if cama_origen:
+                info.origen_cama_identificador = cama_origen.identificador
+                if cama_origen.sala and cama_origen.sala.servicio:
+                    info.origen_servicio_nombre = cama_origen.sala.servicio.nombre
+                    # Teléfono del servicio de origen
+                    info.origen_servicio_telefono = cama_origen.sala.servicio.telefono
+                    
+                    # Hospital de origen (para derivados)
+                    hospital_origen = hospital_repo.obtener_por_id(cama_origen.sala.servicio.hospital_id)
+                    if hospital_origen:
+                        info.origen_hospital_nombre = hospital_origen.nombre
+                        info.origen_hospital_codigo = hospital_origen.codigo
+                        # Si no hay teléfono de servicio, usar urgencias del hospital origen
+                        if not info.origen_servicio_telefono:
+                            info.origen_servicio_telefono = hospital_origen.telefono_urgencias
+        
+        # Fallback: buscar hospital origen si no lo encontramos por cama
+        if not info.origen_hospital_nombre:
+            # Intentar obtener el hospital de origen desde otros campos
+            # El paciente derivado viene de un hospital diferente al actual
+            pass
+    
+    # Caso 2: Paciente hospitalizado (tiene cama actual en este hospital)
+    elif paciente.cama_id:
+        info.origen_tipo = "hospitalizado"
+        info.tiene_cama_origen = True
+        
+        cama_repo = CamaRepository(session)
+        cama_origen = cama_repo.obtener_por_id(paciente.cama_id)
+        if cama_origen:
+            info.origen_cama_identificador = cama_origen.identificador
+            if cama_origen.sala and cama_origen.sala.servicio:
+                info.origen_servicio_nombre = cama_origen.sala.servicio.nombre
+                info.origen_servicio_telefono = cama_origen.sala.servicio.telefono
+    
+    # Caso 3: Paciente de urgencias (sin cama asignada aún)
+    elif paciente.tipo_paciente == TipoPacienteEnum.URGENCIA:
+        info.origen_tipo = "urgencia"
+        info.origen_servicio_nombre = "Urgencias"
+        # Teléfono de urgencias del hospital del paciente
+        if hospital_actual:
+            info.origen_servicio_telefono = hospital_actual.telefono_urgencias
+            info.origen_hospital_nombre = hospital_actual.nombre
+    
+    # Caso 4: Paciente ambulatorio (sin cama asignada aún)
+    elif paciente.tipo_paciente == TipoPacienteEnum.AMBULATORIO:
+        info.origen_tipo = "ambulatorio"
+        info.origen_servicio_nombre = "Ambulatorio"
+        # Teléfono de ambulatorio del hospital del paciente
+        if hospital_actual:
+            info.origen_servicio_telefono = hospital_actual.telefono_ambulatorio
+            info.origen_hospital_nombre = hospital_actual.nombre
+    
+    # ============================================
+    # DETERMINAR DESTINO
+    # ============================================
+    
+    if paciente.cama_destino_id:
+        info.tiene_cama_destino = True
+        info.en_traslado = True
+        
+        cama_repo = CamaRepository(session)
+        cama_destino = cama_repo.obtener_por_id(paciente.cama_destino_id)
+        if cama_destino:
+            info.destino_cama_identificador = cama_destino.identificador
+            if cama_destino.sala and cama_destino.sala.servicio:
+                info.destino_servicio_nombre = cama_destino.sala.servicio.nombre
+                info.destino_servicio_telefono = cama_destino.sala.servicio.telefono
+                
+                # Hospital destino (puede ser diferente para derivaciones)
+                hospital_destino = hospital_repo.obtener_por_id(cama_destino.sala.servicio.hospital_id)
+                if hospital_destino:
+                    info.destino_hospital_nombre = hospital_destino.nombre
+    
+    # Verificar si está en traslado por estado de cama
+    if paciente.cama_id:
+        cama_repo = CamaRepository(session)
+        cama_actual = cama_repo.obtener_por_id(paciente.cama_id)
+        if cama_actual and cama_actual.estado in [
+            EstadoCamaEnum.TRASLADO_SALIENTE,
+            EstadoCamaEnum.TRASLADO_CONFIRMADO,
+            EstadoCamaEnum.CAMA_EN_ESPERA
+        ]:
+            info.en_traslado = True
+    
+    return info

@@ -5,6 +5,9 @@ import { useModal } from '../context/ModalContext';
 import { Badge, Spinner, Modal, Button } from '../components/common';
 import { formatTiempoEspera, formatComplejidad } from '../utils';
 import * as api from '../services/api';
+import type { DerivadoItemExtended } from '../services/api';
+import { ModalDerivadoPaciente } from '../components/modales/ModalDerivadoPaciente';
+import type { Paciente } from '../types';
 
 // Tipo para derivados enviados a otros hospitales
 interface DerivadoEnviado {
@@ -21,6 +24,18 @@ interface DerivadoEnviado {
   diagnostico: string;
 }
 
+// Tipo para información de derivación
+interface DerivadoInfo {
+  hospital_origen_id?: string;
+  hospital_origen_nombre?: string;
+  hospital_destino_id?: string;
+  hospital_destino_nombre?: string;
+  cama_origen_identificador?: string | null;
+  servicio_origen_nombre?: string | null;
+  motivo_derivacion?: string;
+  estado_derivacion?: string;
+}
+
 export function Derivados() {
   const { derivados, loading, showAlert, recargarTodo, hospitalSeleccionado } = useApp();
   const { openModal } = useModal();
@@ -33,6 +48,19 @@ export function Derivados() {
   const [derivadosEnviados, setDerivadosEnviados] = useState<DerivadoEnviado[]>([]);
   const [loadingEnviados, setLoadingEnviados] = useState(false);
   const [showEnviados, setShowEnviados] = useState(false);
+  
+  // ============================================
+  // ESTADO PARA MODAL DE DERIVADO DETALLADO
+  // ============================================
+  const [modalDerivadoAbierto, setModalDerivadoAbierto] = useState(false);
+  const [pacienteSeleccionado, setPacienteSeleccionado] = useState<Paciente | null>(null);
+  const [derivadoInfoSeleccionado, setDerivadoInfoSeleccionado] = useState<DerivadoInfo | null>(null);
+  const [tipoDerivadoSeleccionado, setTipoDerivadoSeleccionado] = useState<'entrada' | 'salida'>('entrada');
+
+  // ============================================
+  // CAST: derivados del contexto como DerivadoItemExtended[]
+  // ============================================
+  const derivadosExtendidos = derivados as unknown as DerivadoItemExtended[];
 
   // Cargar derivados enviados cuando se expande la sección
   useEffect(() => {
@@ -97,10 +125,49 @@ export function Derivados() {
     }
   };
 
-  const handleVerPaciente = (item: typeof derivados[0]) => {
+  // ============================================
+  // VER PACIENTE DERIVADO (ENTRADA)
+  // ============================================
+  const handleVerDerivadoEntrada = (item: DerivadoItemExtended) => {
     if (item.paciente) {
-      openModal('verPaciente', { paciente: item.paciente });
+      setPacienteSeleccionado(item.paciente);
+      setDerivadoInfoSeleccionado({
+        hospital_origen_id: item.hospital_origen_id,
+        hospital_origen_nombre: item.hospital_origen_nombre,
+        cama_origen_identificador: item.cama_origen_identificador,
+        servicio_origen_nombre: item.servicio_origen_nombre,
+        motivo_derivacion: item.motivo_derivacion || item.motivo,
+        estado_derivacion: 'pendiente',
+      });
+      setTipoDerivadoSeleccionado('entrada');
+      setModalDerivadoAbierto(true);
     }
+  };
+
+  // ============================================
+  // VER PACIENTE DERIVADO (SALIDA)
+  // ============================================
+  const handleVerDerivadoSalida = async (item: DerivadoEnviado) => {
+    // Crear un objeto paciente con la información disponible
+    const pacienteParcial: Paciente = {
+      id: item.paciente_id,
+      nombre: item.nombre,
+      run: item.run,
+      diagnostico: item.diagnostico,
+      complejidad: item.complejidad as any,
+      complejidad_requerida: item.complejidad as any,
+    } as Paciente;
+    
+    setPacienteSeleccionado(pacienteParcial);
+    setDerivadoInfoSeleccionado({
+      hospital_destino_id: item.hospital_destino_id,
+      hospital_destino_nombre: item.hospital_destino_nombre,
+      cama_origen_identificador: item.cama_origen_identificador,
+      motivo_derivacion: item.motivo_derivacion,
+      estado_derivacion: item.estado_derivacion,
+    });
+    setTipoDerivadoSeleccionado('salida');
+    setModalDerivadoAbierto(true);
   };
 
   const handleCancelarEnviado = async (pacienteId: string) => {
@@ -118,7 +185,7 @@ export function Derivados() {
   };
 
   // Helper para obtener complejidad del item
-  const getComplejidad = (item: typeof derivados[0]): string => {
+  const getComplejidad = (item: DerivadoItemExtended): string => {
     // Intentar obtener de varias fuentes
     const comp = item.complejidad || item.paciente?.complejidad || item.paciente?.complejidad_requerida;
     if (!comp) return 'ninguna';
@@ -126,12 +193,12 @@ export function Derivados() {
   };
 
   if (loading) {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <Spinner size="lg" />
-    </div>
-  );
-}
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -140,7 +207,7 @@ export function Derivados() {
         <h2 className="text-lg font-semibold text-gray-800">
           Derivaciones Pendientes de Aceptación
           <span className="ml-2 text-sm font-normal text-gray-500">
-            ({derivados.length} pacientes)
+            ({derivadosExtendidos.length} pacientes)
           </span>
         </h2>
         <p className="text-sm text-gray-500 mt-1">
@@ -174,7 +241,7 @@ export function Derivados() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {derivados.map((item) => {
+            {derivadosExtendidos.map((item) => {
               const complejidad = getComplejidad(item);
               
               return (
@@ -194,21 +261,24 @@ export function Derivados() {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center text-sm text-gray-600">
-                      <Building2 className="w-4 h-4 mr-2 text-gray-400" />
+                      <Building2 className="w-4 h-4 mr-2 text-purple-400" />
                       <div>
-                        <p>{item.hospital_origen_nombre || item.hospital_origen?.nombre}</p>
+                        <span className="font-medium">{item.hospital_origen_nombre}</span>
+                        {item.cama_origen_identificador && (
+                          <p className="text-xs text-gray-400">Cama: {item.cama_origen_identificador}</p>
+                        )}
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <p className="text-sm text-gray-600 max-w-xs truncate">
-                      {item.motivo_derivacion || item.motivo}
+                    <p className="text-sm text-gray-600 max-w-xs truncate" title={item.motivo_derivacion || item.motivo}>
+                      {item.motivo_derivacion || item.motivo || '-'}
                     </p>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <Badge variant={
-                      complejidad === 'alta' ? 'danger' :
-                      complejidad === 'media' ? 'warning' :
+                      complejidad === 'alta' || complejidad === 'uci' ? 'danger' :
+                      complejidad === 'media' || complejidad === 'uti' ? 'warning' :
                       'default'
                     }>
                       {formatComplejidad(complejidad)}
@@ -223,9 +293,9 @@ export function Derivados() {
                   <td className="px-4 py-3 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => handleVerPaciente(item)}
-                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
-                        title="Ver detalles"
+                        onClick={() => handleVerDerivadoEntrada(item)}
+                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded border border-gray-300"
+                        title="Ver detalles completos"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -253,7 +323,7 @@ export function Derivados() {
           </tbody>
         </table>
 
-        {derivados.length === 0 && (
+        {derivadosExtendidos.length === 0 && (
           <div className="p-8 text-center text-gray-500">
             No hay derivaciones pendientes de aceptación
           </div>
@@ -355,15 +425,24 @@ export function Derivados() {
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => handleCancelarEnviado(item.paciente_id)}
-                          disabled={procesando}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 disabled:opacity-50"
-                          title="Cancelar derivación y mantener paciente en este hospital"
-                        >
-                          <X className="w-4 h-4" />
-                          Cancelar
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleVerDerivadoSalida(item)}
+                            className="p-1.5 text-gray-600 hover:bg-gray-100 rounded border border-gray-300"
+                            title="Ver detalles completos"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleCancelarEnviado(item.paciente_id)}
+                            disabled={procesando}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 disabled:opacity-50"
+                            title="Cancelar derivación y mantener paciente en este hospital"
+                          >
+                            <X className="w-4 h-4" />
+                            Cancelar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -410,6 +489,21 @@ export function Derivados() {
           </div>
         </div>
       </Modal>
+
+      {/* ============================================ */}
+      {/* MODAL DE DERIVADO DETALLADO */}
+      {/* ============================================ */}
+      <ModalDerivadoPaciente
+        isOpen={modalDerivadoAbierto}
+        onClose={() => {
+          setModalDerivadoAbierto(false);
+          setPacienteSeleccionado(null);
+          setDerivadoInfoSeleccionado(null);
+        }}
+        paciente={pacienteSeleccionado}
+        derivadoInfo={derivadoInfoSeleccionado || undefined}
+        tipo={tipoDerivadoSeleccionado}
+      />
     </div>
   );
 }

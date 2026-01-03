@@ -72,7 +72,8 @@ export enum EstadoCamaEnum {
   EN_LIMPIEZA = "en_limpieza",
   BLOQUEADA = "bloqueada",
   ESPERA_DERIVACION = "espera_derivacion",
-  DERIVACION_CONFIRMADA = "derivacion_confirmada"
+  DERIVACION_CONFIRMADA = "derivacion_confirmada",
+  FALLECIDO = 'fallecido',
 }
 
 export enum EstadoListaEsperaEnum {
@@ -97,6 +98,8 @@ export interface Hospital {
   camas_ocupadas?: number;
   pacientes_en_espera?: number;
   pacientes_derivados?: number;
+  telefono_urgencias?: string | null;
+  telefono_ambulatorio?: string | null;
 }
 
 export interface Servicio {
@@ -109,6 +112,7 @@ export interface Servicio {
   es_uti?: boolean;
   permite_pediatria?: boolean;
   prioridad?: number;
+  telefono?: string | null;
 }
 
 export interface Sala {
@@ -133,20 +137,18 @@ export interface Cama {
   sala_id: string;
   servicio_nombre?: string | null;
   servicio_tipo?: string | null;
-  
-  // ============================================
-  // AGREGAR ESTOS CAMPOS NUEVOS:
-  // ============================================
-  sala_nombre?: string;  // <-- AGREGAR
+  sala_nombre?: string;
   sala_es_individual?: boolean;
   sala_sexo_asignado?: string;
-  // ============================================
-  
   paciente?: Paciente | null;
   paciente_entrante?: Paciente | null;
 }
 
 export interface Paciente {
+  rut: string;
+  prevision: any;
+  requiere_aislamiento: any;
+  requiere_oxigeno: any;
   id: string;
   nombre: string;
   run: string;
@@ -177,6 +179,7 @@ export interface Paciente {
   motivo_observacion?: string | null;
   justificacion_observacion?: string | null;
   procedimiento_invasivo?: string | null;
+  preparacion_quirurgica_detalle?: string | null;
   motivo_monitorizacion?: string | null;
   justificacion_monitorizacion?: string | null;
   casos_especiales?: string[];
@@ -203,13 +206,41 @@ export interface Paciente {
   origen_hospital_nombre?: string | null;
   origen_servicio_nombre?: string | null;
   servicio_destino?: string | null;
+  
+  // ============================================
+  // Timer de observación clínica
+  // ============================================
+  observacion_tiempo_horas?: number | null;
+  observacion_inicio?: string | null;
+  observacion_tiempo_restante?: number | null;
+  
+  // ============================================
+  // Timer de monitorización
+  // ============================================
+  monitorizacion_tiempo_horas?: number | null;
+  monitorizacion_inicio?: string | null;
+  monitorizacion_tiempo_restante?: number | null;
+  
+  // ============================================
+  // Motivo ingreso ambulatorio
+  // ============================================
+  motivo_ingreso_ambulatorio?: string | null;
+
+  fallecido?: boolean;
+  causa_fallecimiento?: string;
+  fallecido_at?: string;
 }
 
 export interface ConfiguracionSistema {
   id?: string;
   modo_manual: boolean;
-  tiempo_limpieza_segundos: number;
-  tiempo_espera_oxigeno_segundos?: number;
+  // CAMBIADO: Ahora en minutos
+  tiempo_limpieza_minutos: number;
+  tiempo_espera_oxigeno_minutos: number;
+  
+  // DEPRECADOS - mantener por compatibilidad temporal
+  tiempo_limpieza_segundos?: number;  // @deprecated usar tiempo_limpieza_minutos
+  tiempo_espera_oxigeno_segundos?: number;  // @deprecated usar tiempo_espera_oxigeno_minutos
 }
 
 // ============================================
@@ -236,12 +267,16 @@ export interface PacienteCreate {
   motivo_monitorizacion?: string;
   justificacion_monitorizacion?: string;
   procedimiento_invasivo?: string;
+  preparacion_quirurgica_detalle?: string;
   tipo_paciente: TipoPacienteEnum;
   hospital_id: string;
   derivacion_hospital_destino_id?: string;
   derivacion_motivo?: string;
   alta_solicitada?: boolean;
   alta_motivo?: string;
+  observacion_tiempo_horas?: number | null;
+  monitorizacion_tiempo_horas?: number | null;
+  motivo_ingreso_ambulatorio?: string | null;
 }
 
 export interface PacienteUpdate {
@@ -260,10 +295,15 @@ export interface PacienteUpdate {
   motivo_monitorizacion?: string;
   justificacion_monitorizacion?: string;
   procedimiento_invasivo?: string;
+  preparacion_quirurgica_detalle?: string;
   derivacion_hospital_destino_id?: string;
   derivacion_motivo?: string;
   alta_solicitada?: boolean;
   alta_motivo?: string;
+  observacion_tiempo_horas?: number | null;
+  monitorizacion_tiempo_horas?: number | null;
+  fallecido?: boolean;
+  causa_fallecimiento?: string;
 }
 
 export interface PacienteFormData {
@@ -278,12 +318,15 @@ export interface PacienteFormData {
   notas_adicionales: string;
   tipo_paciente: TipoPacienteEnum;
   hospital_id: string;
+  motivo_ingreso_ambulatorio: string;
+  
   // Requerimientos que no definen complejidad
   req_kinesioterapia_respiratoria: boolean;
   req_examen_sangre_ocasional: boolean;
   req_curaciones_simples_complejas: boolean;
   req_tratamiento_ev_ocasional: boolean;
   req_rehabilitacion_funcional: boolean;
+  
   // Requerimientos baja complejidad
   req_tratamiento_ev_frecuente: boolean;
   req_tratamiento_infusion_continua: boolean;
@@ -296,34 +339,45 @@ export interface PacienteFormData {
   req_observacion_clinica: boolean;
   req_observacion_motivo: string;
   req_observacion_justificacion: string;
+  req_observacion_tiempo_horas: number | null;  
   req_irrigacion_vesical_continua: boolean;
   req_procedimiento_invasivo_quirurgico: boolean;
   req_procedimiento_invasivo_detalle: string;
+  req_preparacion_quirurgica: boolean;  
+  req_preparacion_quirurgica_detalle: string;
+  req_nutricion_parenteral: boolean;  
+  
   // Requerimientos UTI
   req_droga_vasoactiva: boolean;
   req_sedacion: boolean;
   req_monitorizacion: boolean;
   req_monitorizacion_motivo: string;
   req_monitorizacion_justificacion: string;
+  req_monitorizacion_tiempo_horas: number | null;  // NUEVO
   req_o2_reservorio: boolean;
   req_dialisis_aguda: boolean;
   req_cnaf: boolean;
   req_bic_insulina: boolean;
   req_vmni: boolean;
+  
   // Requerimientos UCI
   req_vmi: boolean;
   req_procuramiento_organos: boolean;
+  
   // Casos especiales
   caso_socio_sanitario: boolean;
   caso_socio_judicial: boolean;
   caso_espera_cardiocirugia: boolean;
+  
   // Derivación
   derivacion_solicitada: boolean;
   derivacion_hospital_destino_id: string;
   derivacion_motivo: string;
+  
   // Alta
   alta_solicitada: boolean;
   alta_motivo: string;
+  
   // Documento
   documento_adjunto: File | null;
   documento_nombre: string;
@@ -380,13 +434,61 @@ export interface EstadisticasGlobales {
 }
 
 export interface WebSocketEvent {
+  hospital_id?: string;
+  reload?: boolean;
+  mensaje?: string;
   tipo: string;
   datos?: Record<string, unknown>;
   timestamp?: string;
   play_sound?: boolean;
   notification_type?: string;
   message?: string;
+  paciente_id?: string;
+  cama_id?: string;
+  derivacion_id?: string;
+  cantidad?: number;
+  cama_ids?: string[];
   [key: string]: unknown;
+
+  // ============================================
+  // CAMPOS TTS
+  // ============================================
+  
+  // Flag que indica si el evento tiene datos TTS
+  tts_habilitado?: boolean;
+  
+  // Identificador de la cama (ej: "505-A")
+  cama_identificador?: string;
+  
+  // Identificador de la cama de origen para traslados
+  cama_origen_identificador?: string;
+  
+  // Nombre del paciente
+  paciente_nombre?: string;
+  
+  // ID del servicio de origen (para filtrado)
+  servicio_origen_id?: string;
+  
+  // Nombre del servicio de origen (para mensaje hablado)
+  servicio_origen_nombre?: string;
+  
+  // ID del servicio de destino (para filtrado)
+  servicio_destino_id?: string;
+  
+  // Nombre del servicio de destino (para mensaje hablado)
+  servicio_destino_nombre?: string;
+  
+  // ID del hospital de origen (derivaciones)
+  hospital_origen_id?: string;
+  
+  // Nombre del hospital de origen (derivaciones)
+  hospital_origen_nombre?: string;
+  
+  // ID del hospital de destino (derivaciones)
+  hospital_destino_id?: string;
+  
+  // Nombre del hospital de destino (derivaciones)
+  hospital_destino_nombre?: string;
 }
 
 export interface ListaEsperaItem {
@@ -450,4 +552,55 @@ export interface DerivadoEnviadoItem {
   tiempo_en_proceso_min: number;
   complejidad: string;
   diagnostico: string;
+}
+
+// ============================================
+// NUEVA INTERFACE: Información de traslado
+// ============================================
+export interface InfoTraslado {
+  // Origen
+  origen_tipo: 'hospitalizado' | 'urgencia' | 'ambulatorio' | 'derivado' | null;
+  origen_hospital_nombre?: string | null;
+  origen_hospital_codigo?: string | null;
+  origen_servicio_nombre?: string | null;
+  origen_servicio_telefono?: string | null;
+  origen_cama_identificador?: string | null;
+  
+  // Destino
+  destino_servicio_nombre?: string | null;
+  destino_servicio_telefono?: string | null;
+  destino_cama_identificador?: string | null;
+  destino_hospital_nombre?: string | null;
+  
+  // Estado
+  tiene_cama_origen: boolean;
+  tiene_cama_destino: boolean;
+  en_traslado: boolean;
+}
+
+// ============================================
+// Servicio con teléfono (para configuración)
+// ============================================
+export interface ServicioConTelefono {
+  id: string;
+  nombre: string;
+  codigo: string;
+  tipo: string;
+  hospital_id: string;
+  telefono: string | null;
+  total_camas: number;
+  camas_libres: number;
+}
+
+// ============================================
+// Hospital con teléfonos completos
+// ============================================
+export interface HospitalConTelefonos {
+  id: string;
+  nombre: string;
+  codigo: string;
+  es_central: boolean;
+  telefono_urgencias: string | null;
+  telefono_ambulatorio: string | null;
+  servicios: ServicioConTelefono[];
 }

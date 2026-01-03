@@ -1,9 +1,12 @@
 """
 Endpoints de Hospitales.
+
+CORREGIDO: Lista de espera ahora incluye pacientes con cama_destino_id asignada
+que están pendientes de completar el traslado físico.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from typing import List
+from typing import Optional, List
 from datetime import datetime, timezone
 
 from app.core.database import get_session
@@ -17,8 +20,9 @@ from app.schemas.hospital import HospitalResponse, ServicioResponse
 from app.schemas.cama import CamaResponse
 from app.repositories.hospital_repo import HospitalRepository
 from app.repositories.cama_repo import CamaRepository
-from app.services.prioridad_service import gestor_colas_global
+from app.services.prioridad_service import gestor_colas_global, PrioridadService
 from app.utils.helpers import calcular_estadisticas_camas, crear_paciente_response
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -34,10 +38,21 @@ def obtener_hospitales(session: Session = Depends(get_session)):
         camas = repo.obtener_camas_hospital(hospital.id)
         stats = calcular_estadisticas_camas(camas)
         
-        # Contar pacientes en espera
+        # Contar pacientes en espera (incluye los que tienen cama destino asignada)
         cola = gestor_colas_global.obtener_cola(hospital.id)
-        pacientes_espera = cola.tamano()
+        pacientes_en_cola = cola.tamano()
         
+        # También contar pacientes con cama_destino_id que podrían no estar en la cola
+        query_pendientes_traslado = select(Paciente).where(
+            Paciente.hospital_id == hospital.id,
+            Paciente.en_lista_espera == True,
+            Paciente.cama_destino_id != None
+        )
+        pendientes_traslado = len(session.exec(query_pendientes_traslado).all())
+        
+        # El total es el máximo entre ambos (evitar doble conteo)
+        pacientes_espera = max(pacientes_en_cola, pendientes_traslado) if pendientes_traslado > 0 else pacientes_en_cola
+  
         # Contar derivados pendientes
         query_derivados = select(Paciente).where(
             Paciente.derivacion_hospital_destino_id == hospital.id,
@@ -54,7 +69,9 @@ def obtener_hospitales(session: Session = Depends(get_session)):
             camas_libres=stats["libres"],
             camas_ocupadas=stats["ocupadas"],
             pacientes_en_espera=pacientes_espera,
-            pacientes_derivados=derivados
+            pacientes_derivados=derivados,
+            telefono_urgencias=hospital.telefono_urgencias,  
+            telefono_ambulatorio=hospital.telefono_ambulatorio  
         ))
     
     return resultado
@@ -168,12 +185,19 @@ def obtener_camas_hospital(hospital_id: str, session: Session = Depends(get_sess
 
 
 # ============================================
-# ENDPOINT: LISTA DE ESPERA (CORREGIDO)
+# ENDPOINT: LISTA DE ESPERA 
+# ============================================
+# incluye pacientes con cama_destino_id asignada
+# que están pendientes de completar el traslado físico.
 # ============================================
 @router.get("/{hospital_id}/lista-espera")
 def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_session)):
     """
     Obtiene la lista de espera de un hospital.
+    
+    ncluye pacientes que:
+    1. Están en la cola de prioridad (esperando asignación)
+    2. Tienen cama_destino_id asignada (pendientes de traslado físico)
     
     Retorna pacientes ordenados por prioridad (mayor a menor) con información de:
     - Origen del paciente (urgencias, ambulatorio, derivado, hospitalizado)
@@ -187,23 +211,74 @@ def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_sessio
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital no encontrado")
     
-    # Obtener cola de prioridad
+    # ============================================
+    # OBTENER PACIENTES DE MÚLTIPLES FUENTES
+    # ============================================
+    
+    # Fuente 1: Cola de prioridad (pacientes esperando asignación)
     cola = gestor_colas_global.obtener_cola(hospital_id)
+    pacientes_en_cola = cola.obtener_todos_ordenados()  # List[Tuple[paciente_id, prioridad]]
+    pacientes_ids_en_cola = {pid for pid, _ in pacientes_en_cola}
     
-    # obtener_todos_ordenados() retorna List[Tuple[paciente_id, prioridad]]
-    pacientes_ordenados = cola.obtener_todos_ordenados()
+    # Fuente 2: Pacientes con cama_destino_id asignada (pendientes de traslado)
+    # Estos pueden no estar en la cola pero deben mostrarse
+    query_pendientes_traslado = select(Paciente).where(
+        Paciente.hospital_id == hospital_id,
+        Paciente.en_lista_espera == True,
+        Paciente.cama_destino_id != None
+    )
+    pacientes_pendientes_traslado = session.exec(query_pendientes_traslado).all()
     
-    pacientes_response = []
-    for posicion, (paciente_id, prioridad) in enumerate(pacientes_ordenados, 1):
+    # Fuente 3: Pacientes derivados aceptados que están en lista de espera
+    query_derivados_aceptados = select(Paciente).where(
+        Paciente.hospital_id == hospital_id,
+        Paciente.en_lista_espera == True,
+        Paciente.derivacion_estado == "aceptada"
+    )
+    pacientes_derivados = session.exec(query_derivados_aceptados).all()
+    
+    # ============================================
+    # COMBINAR Y ORDENAR PACIENTES
+    # ============================================
+    prioridad_service = PrioridadService(session)
+    pacientes_dict = {}  # Usar dict para evitar duplicados
+    
+    # Agregar pacientes de la cola con su prioridad
+    for paciente_id, prioridad in pacientes_en_cola:
         paciente = session.get(Paciente, paciente_id)
-        if not paciente:
-            continue
-        
+        if paciente:
+            pacientes_dict[paciente_id] = (paciente, prioridad)
+    
+    # Agregar pacientes pendientes de traslado (si no están ya)
+    for paciente in pacientes_pendientes_traslado:
+        if paciente.id not in pacientes_dict:
+            prioridad = prioridad_service.calcular_prioridad(paciente)
+            pacientes_dict[paciente.id] = (paciente, prioridad)
+    
+    # Agregar pacientes derivados aceptados (si no están ya)
+    for paciente in pacientes_derivados:
+        if paciente.id not in pacientes_dict:
+            prioridad = prioridad_service.calcular_prioridad(paciente)
+            pacientes_dict[paciente.id] = (paciente, prioridad)
+    
+    # Ordenar por prioridad descendente
+    pacientes_ordenados = sorted(
+        pacientes_dict.values(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+    
+    # ============================================
+    # CONSTRUIR RESPUESTA
+    # ============================================
+    pacientes_response = []
+    cama_repo = CamaRepository(session)
+    
+    for posicion, (paciente, prioridad) in enumerate(pacientes_ordenados, 1):
         # Calcular tiempo de espera
         tiempo_espera_min = 0
         if paciente.timestamp_lista_espera:
             try:
-                # Manejar timestamps con y sin timezone
                 ts = paciente.timestamp_lista_espera
                 if ts.tzinfo is None:
                     ts = ts.replace(tzinfo=timezone.utc)
@@ -213,7 +288,7 @@ def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_sessio
                 tiempo_espera_min = 0
         
         # ============================================
-        # DETERMINAR ORIGEN DEL PACIENTE (CORREGIDO)
+        # DETERMINAR ORIGEN DEL PACIENTE
         # ============================================
         origen_tipo = None
         origen_hospital_nombre = None
@@ -224,10 +299,7 @@ def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_sessio
         # Caso 1: Paciente derivado (aceptado de otro hospital)
         if paciente.derivacion_estado == "aceptada":
             origen_tipo = "derivado"
-            # El hospital_id original está en cama_origen_derivacion
             if paciente.cama_origen_derivacion_id:
-                from app.repositories.cama_repo import CamaRepository
-                cama_repo = CamaRepository(session)
                 cama_origen = cama_repo.obtener_por_id(paciente.cama_origen_derivacion_id)
                 if cama_origen and cama_origen.sala and cama_origen.sala.servicio:
                     hospital_origen = repo.obtener_por_id(cama_origen.sala.servicio.hospital_id)
@@ -406,3 +478,308 @@ def obtener_derivados_hospital(hospital_id: str, session: Session = Depends(get_
         })
     
     return resultado
+
+# ============================================
+# SCHEMAS PARA TELÉFONOS
+# ============================================
+
+class HospitalTelefonosUpdate(BaseModel):
+    """Schema para actualizar teléfonos de un hospital."""
+    telefono_urgencias: Optional[str] = None
+    telefono_ambulatorio: Optional[str] = None
+
+
+class ServicioTelefonoUpdate(BaseModel):
+    """Schema para actualizar el teléfono de un servicio."""
+    telefono: Optional[str] = None
+
+
+class ServicioConTelefonoResponse(BaseModel):
+    """Schema de respuesta para servicio con teléfono."""
+    id: str
+    nombre: str
+    codigo: str
+    tipo: str
+    hospital_id: str
+    telefono: Optional[str] = None
+    total_camas: int = 0
+    camas_libres: int = 0
+    
+    class Config:
+        from_attributes = True
+
+
+class HospitalConTelefonosResponse(BaseModel):
+    """Schema de respuesta para hospital con todos sus teléfonos."""
+    id: str
+    nombre: str
+    codigo: str
+    es_central: bool
+    telefono_urgencias: Optional[str] = None
+    telefono_ambulatorio: Optional[str] = None
+    servicios: List[ServicioConTelefonoResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+        # ============================================
+# ENDPOINT: Obtener teléfonos de un hospital
+# ============================================
+
+@router.get("/{hospital_id}/telefonos", response_model=HospitalConTelefonosResponse)
+def obtener_telefonos_hospital(hospital_id: str, session: Session = Depends(get_session)):
+    """
+    Obtiene todos los teléfonos de un hospital:
+    - Teléfono de urgencias del hospital
+    - Teléfono de ambulatorio del hospital
+    - Teléfonos de cada servicio
+    """
+    repo = HospitalRepository(session)
+    cama_repo = CamaRepository(session)
+    
+    hospital = repo.obtener_por_id(hospital_id)
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital no encontrado")
+    
+    # Obtener servicios con sus teléfonos
+    servicios = repo.obtener_servicios_hospital(hospital_id)
+    servicios_response = []
+    
+    for servicio in servicios:
+        camas = cama_repo.obtener_por_servicio(servicio.id)
+        camas_libres = len([c for c in camas if c.estado == EstadoCamaEnum.LIBRE])
+        
+        servicios_response.append(ServicioConTelefonoResponse(
+            id=servicio.id,
+            nombre=servicio.nombre,
+            codigo=servicio.codigo,
+            tipo=servicio.tipo.value if hasattr(servicio.tipo, 'value') else str(servicio.tipo),
+            hospital_id=servicio.hospital_id,
+            telefono=servicio.telefono,
+            total_camas=len(camas),
+            camas_libres=camas_libres
+        ))
+    
+    return HospitalConTelefonosResponse(
+        id=hospital.id,
+        nombre=hospital.nombre,
+        codigo=hospital.codigo,
+        es_central=hospital.es_central,
+        telefono_urgencias=hospital.telefono_urgencias,
+        telefono_ambulatorio=hospital.telefono_ambulatorio,
+        servicios=servicios_response
+    )
+
+
+# ============================================
+# ENDPOINT: Actualizar teléfonos del hospital (urgencias/ambulatorio)
+# ============================================
+
+@router.put("/{hospital_id}/telefonos")
+async def actualizar_telefonos_hospital(
+    hospital_id: str,
+    data: HospitalTelefonosUpdate,
+    session: Session = Depends(get_session)
+):
+    """
+    Actualiza los teléfonos de urgencias y ambulatorio de un hospital.
+    """
+    repo = HospitalRepository(session)
+    hospital = repo.obtener_por_id(hospital_id)
+    
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital no encontrado")
+    
+    # Actualizar teléfonos
+    if data.telefono_urgencias is not None:
+        hospital.telefono_urgencias = data.telefono_urgencias.strip() if data.telefono_urgencias.strip() else None
+    
+    if data.telefono_ambulatorio is not None:
+        hospital.telefono_ambulatorio = data.telefono_ambulatorio.strip() if data.telefono_ambulatorio.strip() else None
+    
+    session.add(hospital)
+    session.commit()
+    session.refresh(hospital)
+    
+    # Notificar cambio
+    await manager.broadcast({
+        "tipo": "hospital_telefonos_actualizados",
+        "hospital_id": hospital_id
+    })
+    
+    return {
+        "success": True,
+        "message": "Teléfonos del hospital actualizados",
+        "data": {
+            "telefono_urgencias": hospital.telefono_urgencias,
+            "telefono_ambulatorio": hospital.telefono_ambulatorio
+        }
+    }
+
+
+# ============================================
+# ENDPOINT: Obtener servicios con teléfonos
+# ============================================
+
+@router.get("/{hospital_id}/servicios-telefonos", response_model=List[ServicioConTelefonoResponse])
+def obtener_servicios_con_telefonos(hospital_id: str, session: Session = Depends(get_session)):
+    """
+    Obtiene los servicios de un hospital con sus teléfonos.
+    Útil para la configuración de teléfonos.
+    """
+    repo = HospitalRepository(session)
+    cama_repo = CamaRepository(session)
+    
+    servicios = repo.obtener_servicios_hospital(hospital_id)
+    resultado = []
+    
+    for servicio in servicios:
+        camas = cama_repo.obtener_por_servicio(servicio.id)
+        camas_libres = len([c for c in camas if c.estado == EstadoCamaEnum.LIBRE])
+        
+        resultado.append(ServicioConTelefonoResponse(
+            id=servicio.id,
+            nombre=servicio.nombre,
+            codigo=servicio.codigo,
+            tipo=servicio.tipo.value if hasattr(servicio.tipo, 'value') else str(servicio.tipo),
+            hospital_id=servicio.hospital_id,
+            telefono=servicio.telefono,
+            total_camas=len(camas),
+            camas_libres=camas_libres
+        ))
+    
+    return resultado
+
+
+# ============================================
+# ENDPOINT: Actualizar teléfono de un servicio
+# ============================================
+
+@router.put("/{hospital_id}/servicios/{servicio_id}/telefono", response_model=ServicioConTelefonoResponse)
+async def actualizar_telefono_servicio(
+    hospital_id: str,
+    servicio_id: str,
+    data: ServicioTelefonoUpdate,
+    session: Session = Depends(get_session)
+):
+    """
+    Actualiza el teléfono de contacto de un servicio.
+    """
+    servicio = session.get(Servicio, servicio_id)
+    
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    
+    if servicio.hospital_id != hospital_id:
+        raise HTTPException(status_code=400, detail="El servicio no pertenece a este hospital")
+    
+    # Actualizar teléfono
+    servicio.telefono = data.telefono.strip() if data.telefono and data.telefono.strip() else None
+    
+    session.add(servicio)
+    session.commit()
+    session.refresh(servicio)
+    
+    # Obtener estadísticas de camas
+    cama_repo = CamaRepository(session)
+    camas = cama_repo.obtener_por_servicio(servicio.id)
+    camas_libres = len([c for c in camas if c.estado == EstadoCamaEnum.LIBRE])
+    
+    # Notificar cambio
+    await manager.broadcast({
+        "tipo": "servicio_actualizado",
+        "servicio_id": servicio_id,
+        "hospital_id": hospital_id
+    })
+    
+    return ServicioConTelefonoResponse(
+        id=servicio.id,
+        nombre=servicio.nombre,
+        codigo=servicio.codigo,
+        tipo=servicio.tipo.value if hasattr(servicio.tipo, 'value') else str(servicio.tipo),
+        hospital_id=servicio.hospital_id,
+        telefono=servicio.telefono,
+        total_camas=len(camas),
+        camas_libres=camas_libres
+    )
+
+
+# ============================================
+# ENDPOINT: Actualizar múltiples teléfonos (batch)
+# ============================================
+
+@router.put("/{hospital_id}/telefonos-batch")
+async def actualizar_telefonos_batch(
+    hospital_id: str,
+    data: dict,  # {"hospital": {...}, "servicios": {...}}
+    session: Session = Depends(get_session)
+):
+    """
+    Actualiza todos los teléfonos de un hospital en una sola llamada.
+    
+    Body esperado:
+    {
+        "hospital": {
+            "telefono_urgencias": "123456",
+            "telefono_ambulatorio": "789012"
+        },
+        "servicios": {
+            "servicio_id_1": "111222",
+            "servicio_id_2": "333444"
+        }
+    }
+    """
+    repo = HospitalRepository(session)
+    hospital = repo.obtener_por_id(hospital_id)
+    
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital no encontrado")
+    
+    actualizados = []
+    errores = []
+    
+    # Actualizar teléfonos del hospital
+    hospital_data = data.get("hospital", {})
+    if "telefono_urgencias" in hospital_data:
+        tel = hospital_data["telefono_urgencias"]
+        hospital.telefono_urgencias = tel.strip() if tel and tel.strip() else None
+        actualizados.append("Urgencias del hospital")
+    
+    if "telefono_ambulatorio" in hospital_data:
+        tel = hospital_data["telefono_ambulatorio"]
+        hospital.telefono_ambulatorio = tel.strip() if tel and tel.strip() else None
+        actualizados.append("Ambulatorio del hospital")
+    
+    session.add(hospital)
+    
+    # Actualizar teléfonos de servicios
+    servicios_data = data.get("servicios", {})
+    for servicio_id, telefono in servicios_data.items():
+        servicio = session.get(Servicio, servicio_id)
+        
+        if not servicio:
+            errores.append(f"Servicio {servicio_id} no encontrado")
+            continue
+            
+        if servicio.hospital_id != hospital_id:
+            errores.append(f"Servicio {servicio_id} no pertenece a este hospital")
+            continue
+        
+        servicio.telefono = telefono.strip() if telefono and telefono.strip() else None
+        session.add(servicio)
+        actualizados.append(servicio.nombre)
+    
+    session.commit()
+    
+    # Notificar cambio
+    await manager.broadcast({
+        "tipo": "telefonos_hospital_actualizados",
+        "hospital_id": hospital_id
+    })
+    
+    return {
+        "success": True,
+        "message": f"Teléfonos actualizados: {len(actualizados)}",
+        "actualizados": actualizados,
+        "errores": errores if errores else None
+    }

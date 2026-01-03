@@ -79,7 +79,11 @@ export function formatEstado(estado: string): string {
     en_limpieza: 'En Limpieza',
     bloqueada: 'Bloqueada',
     espera_derivacion: 'Espera Derivación',
-    derivacion_confirmada: 'Derivación Confirmada'
+    derivacion_confirmada: 'Derivación Confirmada',
+    // ============================================
+    // NUEVO: Estado FALLECIDO
+    // ============================================
+    fallecido: 'Fallecido'
   };
   return estados[estado] || estado;
 }
@@ -150,7 +154,11 @@ export const COLORES_ESTADO: Record<string, string> = {
   en_limpieza: 'bg-gray-100 border-gray-500 text-gray-800',
   bloqueada: 'bg-red-100 border-red-500 text-red-800',
   espera_derivacion: 'bg-indigo-100 border-indigo-500 text-indigo-800',
-  derivacion_confirmada: 'bg-pink-100 border-pink-500 text-pink-800'
+  derivacion_confirmada: 'bg-pink-100 border-pink-500 text-pink-800',
+  // ============================================
+  // NUEVO: Estado FALLECIDO
+  // ============================================
+  fallecido: 'bg-gray-700 text-white border-gray-800',
 };
 
 export const COLORES_COMPLEJIDAD: Record<string, string> = {

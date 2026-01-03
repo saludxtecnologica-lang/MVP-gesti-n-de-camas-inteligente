@@ -1,5 +1,6 @@
 """
 Modelo de Hospital.
+
 """
 from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List, TYPE_CHECKING
@@ -28,6 +29,12 @@ class Hospital(SQLModel, table=True):
     codigo: str = Field(unique=True)  # PM, LL, CA
     es_central: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # ============================================
+    # NUEVOS CAMPOS: Teléfonos por hospital
+    # ============================================
+    telefono_urgencias: Optional[str] = Field(default=None, max_length=50)
+    telefono_ambulatorio: Optional[str] = Field(default=None, max_length=50)
     
     # Relaciones
     servicios: List["Servicio"] = Relationship(back_populates="hospital")

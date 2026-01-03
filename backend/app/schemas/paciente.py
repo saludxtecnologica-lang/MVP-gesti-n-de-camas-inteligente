@@ -49,6 +49,7 @@ class PacienteCreate(BaseModel):
     
     # Procedimiento invasivo
     procedimiento_invasivo: Optional[str] = None
+    preparacion_quirurgica_detalle: Optional[str] = None
     
     # Tipo y hospital
     tipo_paciente: TipoPacienteEnum
@@ -61,6 +62,10 @@ class PacienteCreate(BaseModel):
     # Alta (opcional)
     alta_solicitada: bool = False
     alta_motivo: Optional[str] = None
+
+    observacion_tiempo_horas: Optional[int] = None
+    monitorizacion_tiempo_horas: Optional[int] = None
+    motivo_ingreso_ambulatorio: Optional[str] = None
 
     @field_validator('edad')
     @classmethod
@@ -97,12 +102,21 @@ class PacienteUpdate(BaseModel):
     motivo_monitorizacion: Optional[str] = None
     justificacion_monitorizacion: Optional[str] = None
     procedimiento_invasivo: Optional[str] = None
+    preparacion_quirurgica_detalle: Optional[str] = None
     
     derivacion_hospital_destino_id: Optional[str] = None
     derivacion_motivo: Optional[str] = None
     
     alta_solicitada: Optional[bool] = None
     alta_motivo: Optional[str] = None
+
+    observacion_tiempo_horas: Optional[int] = None
+    monitorizacion_tiempo_horas: Optional[int] = None
+    motivo_ingreso_ambulatorio: Optional[str] = None
+
+    # Fallecimiento
+    fallecido: Optional[bool] = None
+    causa_fallecimiento: Optional[str] = None
 
 
 class PacienteResponse(BaseModel):
@@ -160,10 +174,27 @@ class PacienteResponse(BaseModel):
     justificacion_monitorizacion: Optional[str] = None
     procedimiento_invasivo: Optional[str] = None
     documento_adjunto: Optional[str] = None
+    preparacion_quirurgica_detalle: Optional[str] = None  
     
     # Estado oxígeno
     esperando_evaluacion_oxigeno: bool = False
+
+    # Fallecimiento
+    fallecido: bool = False
+    causa_fallecimiento: Optional[str] = None
+    fallecido_at: Optional[datetime] = None
     
+    # ============================================
+    # Campos de timers de observación y monitorización
+    # ============================================
+    observacion_tiempo_horas: Optional[int] = None
+    observacion_inicio: Optional[datetime] = None
+    observacion_tiempo_restante: Optional[int] = None  # En segundos
+    
+    monitorizacion_tiempo_horas: Optional[int] = None
+    monitorizacion_inicio: Optional[datetime] = None
+    monitorizacion_tiempo_restante: Optional[int] = None  # En segundos
+
     class Config:
         from_attributes = True
 

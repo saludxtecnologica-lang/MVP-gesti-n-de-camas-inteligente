@@ -73,7 +73,19 @@ class Paciente(SQLModel, table=True):
     justificacion_monitorizacion: Optional[str] = Field(default=None)
     
     # Procedimiento invasivo
-    procedimiento_invasivo: Optional[str] = Field(default=None)
+    procedimiento_invasivo: Optional[str] = Field(default=None, max_length=500)
+    preparacion_quirurgica_detalle: Optional[str] = Field(default=None, max_length=500)  # AGREGAR
+
+    # Timer de observación
+    observacion_tiempo_horas: Optional[int] = Field(default=None)
+    observacion_inicio: Optional[datetime] = Field(default=None)
+
+    # Timer de monitorización
+    monitorizacion_tiempo_horas: Optional[int] = Field(default=None)
+    monitorizacion_inicio: Optional[datetime] = Field(default=None)
+
+    # Motivo ambulatorio
+    motivo_ingreso_ambulatorio: Optional[str] = Field(default=None)
     
     # ============================================
     # COMPLEJIDAD Y TIPO
@@ -128,6 +140,14 @@ class Paciente(SQLModel, table=True):
     alta_solicitada: bool = Field(default=False)
     alta_motivo: Optional[str] = Field(default=None)
     
+    # ============================================
+    # FALLECIMIENTO
+    # ============================================
+    fallecido: bool = Field(default=False, index=True)
+    causa_fallecimiento: Optional[str] = Field(default=None)
+    fallecido_at: Optional[datetime] = Field(default=None)
+    estado_cama_anterior_fallecimiento: Optional[str] = Field(default=None)
+
     # ============================================
     # TIMESTAMPS
     # ============================================
@@ -187,6 +207,11 @@ class Paciente(SQLModel, table=True):
             self.tipo_paciente == TipoPacienteEnum.DERIVADO or
             self.derivacion_estado == "aceptada"
         )
+    
+    @property
+    def esta_fallecido(self) -> bool:
+        """Verifica si el paciente está marcado como fallecido."""
+        return self.fallecido
     
     # ============================================
     # MÉTODOS DE UTILIDAD

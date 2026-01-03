@@ -1,5 +1,8 @@
 """
 Schemas de Hospital, Servicio y Sala.
+ACTUALIZADO: HospitalResponse incluye teléfonos de urgencias y ambulatorio.
+             ServicioResponse incluye campo telefono.
+
 """
 from pydantic import BaseModel
 from typing import Optional, List
@@ -20,9 +23,20 @@ class HospitalResponse(BaseModel):
     camas_ocupadas: int = 0
     pacientes_en_espera: int = 0
     pacientes_derivados: int = 0
+    # ============================================
+    # NUEVOS CAMPOS: Teléfonos del hospital
+    # ============================================
+    telefono_urgencias: Optional[str] = None
+    telefono_ambulatorio: Optional[str] = None
     
     class Config:
         from_attributes = True
+
+
+class HospitalTelefonosUpdate(BaseModel):
+    """Schema para actualizar teléfonos de un hospital."""
+    telefono_urgencias: Optional[str] = None
+    telefono_ambulatorio: Optional[str] = None
 
 
 class ServicioResponse(BaseModel):
@@ -35,6 +49,10 @@ class ServicioResponse(BaseModel):
     hospital_id: str
     total_camas: int = 0
     camas_libres: int = 0
+    # ============================================
+    # Teléfono de contacto del servicio
+    # ============================================
+    telefono: Optional[str] = None
     
     class Config:
         from_attributes = True

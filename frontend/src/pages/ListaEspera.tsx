@@ -1,14 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { Clock, User, Search, X, Eye, FileText, AlertTriangle, Send, BedDouble } from 'lucide-react';
+import { Clock, User, Search, X, FileText, AlertTriangle, Send, BedDouble, Trash2, RotateCcw, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useModal } from '../context/ModalContext';
 import { Badge, Spinner, Modal, Button } from '../components/common';
+import { ModalDerivacionDirecta } from '../components/modales/ModalDerivacionDirecta';
 import { 
   formatTiempoEspera, 
   formatComplejidad, 
   formatTipoPaciente 
 } from '../utils';
 import * as api from '../services/api';
+import type { Paciente, Cama } from '../types';
 
 export function ListaEspera() {
   const { listaEspera, loading, showAlert, recargarTodo, configuracion, camas } = useApp();
@@ -16,10 +18,23 @@ export function ListaEspera() {
   const [filtroOrigen, setFiltroOrigen] = useState<string>('todos');
   const [busqueda, setBusqueda] = useState('');
   
-  // Estado para modal de confirmación de cancelar
-  const [showCancelarModal, setShowCancelarModal] = useState(false);
-  const [pacienteCancelar, setPacienteCancelar] = useState<typeof listaEspera[0] | null>(null);
+  // Estado para modal de confirmación (cancelar/eliminar)
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pacienteSeleccionado, setPacienteSeleccionado] = useState<typeof listaEspera[0] | null>(null);
+  const [accionPendiente, setAccionPendiente] = useState<'cancelar' | 'eliminar' | 'cancelar_asignacion' | null>(null);
   const [procesando, setProcesando] = useState(false);
+
+  // Estado para modal de derivación
+  const [showDerivacionModal, setShowDerivacionModal] = useState(false);
+  const [pacienteDerivar, setPacienteDerivar] = useState<Paciente | null>(null);
+
+  // ============================================
+  // NUEVO: Estado para modal de asignación manual
+  // ============================================
+  const [showAsignacionModal, setShowAsignacionModal] = useState(false);
+  const [pacienteAsignar, setPacienteAsignar] = useState<typeof listaEspera[0] | null>(null);
+  const [busquedaCama, setBusquedaCama] = useState('');
+  const [camaSeleccionada, setCamaSeleccionada] = useState<string | null>(null);
 
   const modoManual = configuracion?.modo_manual ?? false;
 
@@ -55,6 +70,20 @@ export function ListaEspera() {
     return resultado;
   }, [listaEspera, filtroOrigen, busqueda]);
 
+  // ============================================
+  // NUEVO: Filtrar camas libres para asignación manual
+  // ============================================
+  const camasLibresFiltradas = useMemo(() => {
+    const libres = camas.filter(c => c.estado === 'libre');
+    if (!busquedaCama) return libres;
+    
+    const termino = busquedaCama.toLowerCase();
+    return libres.filter(c => 
+      c.identificador?.toLowerCase().includes(termino) ||
+      c.servicio_nombre?.toLowerCase().includes(termino)
+    );
+  }, [camas, busquedaCama]);
+
   // Helper para obtener información de cama destino
   const getCamaDestinoInfo = (item: typeof listaEspera[0]): { identificador: string; servicio: string } | null => {
     const camaDestinoId = item.paciente?.cama_destino_id;
@@ -69,22 +98,26 @@ export function ListaEspera() {
     };
   };
 
-  const handleVerPaciente = (item: typeof listaEspera[0]) => {
+  // Click en fila para ver paciente
+  const handleRowClick = (item: typeof listaEspera[0]) => {
     if (item.paciente) {
       openModal('verPaciente', { paciente: item.paciente });
     }
   };
 
-  const handleReevaluar = (item: typeof listaEspera[0]) => {
+  const handleReevaluar = (item: typeof listaEspera[0], e: React.MouseEvent) => {
+    e.stopPropagation(); // Evitar que se dispare el click de la fila
     if (item.paciente) {
       openModal('reevaluar', { paciente: item.paciente });
     }
   };
 
-  // Mostrar modal de confirmación antes de cancelar
-  const handleMostrarCancelar = (item: typeof listaEspera[0]) => {
-    setPacienteCancelar(item);
-    setShowCancelarModal(true);
+  const handleDerivar = (item: typeof listaEspera[0], e: React.MouseEvent) => {
+    e.stopPropagation(); // Evitar que se dispare el click de la fila
+    if (item.paciente) {
+      setPacienteDerivar(item.paciente);
+      setShowDerivacionModal(true);
+    }
   };
 
   // Helper para determinar si es derivado (usando propiedades existentes)
@@ -94,9 +127,16 @@ export function ListaEspera() {
            String(item.paciente?.tipo_paciente) === 'derivado';
   };
 
-  // Helper para determinar si tiene cama actual (usando propiedades existentes)
+  // Helper para determinar si tiene cama actual (cama de origen)
   const tieneCamaActual = (item: typeof listaEspera[0]): boolean => {
     return !!(item.paciente?.cama_id);
+  };
+
+  // ============================================
+  // NUEVO: Helper para determinar si tiene cama destino asignada
+  // ============================================
+  const tieneCamaDestinoAsignada = (item: typeof listaEspera[0]): boolean => {
+    return !!(item.paciente?.cama_destino_id) || item.estado_lista === 'asignado';
   };
 
   // Helper para obtener complejidad (usando propiedades existentes)
@@ -124,45 +164,148 @@ export function ListaEspera() {
     return null;
   };
 
-  // Obtener mensaje descriptivo según tipo de paciente
-  const getMensajeCancelacion = (item: typeof listaEspera[0] | null): string => {
-    if (!item) return '';
+  // Mostrar modal de confirmación para CANCELAR (volver a cama)
+  const handleMostrarCancelar = (item: typeof listaEspera[0], e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPacienteSeleccionado(item);
+    setAccionPendiente('cancelar');
+    setShowConfirmModal(true);
+  };
+
+  // Mostrar modal de confirmación para ELIMINAR (sin cama)
+  const handleMostrarEliminar = (item: typeof listaEspera[0], e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPacienteSeleccionado(item);
+    setAccionPendiente('eliminar');
+    setShowConfirmModal(true);
+  };
+
+  // ============================================
+  // NUEVO: Mostrar modal para cancelar asignación (liberar cama destino)
+  // ============================================
+  const handleMostrarCancelarAsignacion = (item: typeof listaEspera[0], e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPacienteSeleccionado(item);
+    setAccionPendiente('cancelar_asignacion');
+    setShowConfirmModal(true);
+  };
+
+  // ============================================
+  // NUEVO: Abrir modal de asignación manual
+  // ============================================
+  const handleAbrirAsignacionManual = (item: typeof listaEspera[0], e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPacienteAsignar(item);
+    setBusquedaCama('');
+    setCamaSeleccionada(null);
+    setShowAsignacionModal(true);
+  };
+
+  // ============================================
+  // NUEVO: Ejecutar asignación manual de cama
+  // ============================================
+  const handleConfirmarAsignacion = async () => {
+    if (!pacienteAsignar || !camaSeleccionada) return;
     
-    const esDerivado = esItemDerivado(item);
-    const tieneCama = tieneCamaActual(item);
+    const pacienteId = pacienteAsignar.paciente_id || pacienteAsignar.paciente?.id || '';
     
-    if (esDerivado) {
-      return `El paciente volverá a la lista de "Derivados Pendientes" donde podrá ser aceptado o rechazado nuevamente. La cama en el hospital de origen volverá al estado "En espera de derivación".`;
-    } else if (tieneCama) {
-      return `El paciente volverá a su cama actual con estado "Cama en espera". Podrá iniciar una nueva búsqueda de cama cuando lo requiera.`;
-    } else {
-      return `El paciente será removido de la lista de espera. Si es necesario, deberá ser registrado nuevamente.`;
+    try {
+      setProcesando(true);
+      const result = await api.asignarManualDesdeLista(pacienteId, camaSeleccionada);
+      showAlert('success', result.message || 'Cama asignada correctamente');
+      setShowAsignacionModal(false);
+      setPacienteAsignar(null);
+      setCamaSeleccionada(null);
+      await recargarTodo();
+    } catch (error) {
+      showAlert('error', error instanceof Error ? error.message : 'Error al asignar cama');
+    } finally {
+      setProcesando(false);
     }
   };
 
-  // Confirmar cancelación
-  const handleConfirmarCancelar = async () => {
-    if (!pacienteCancelar) return;
+  // Obtener mensaje descriptivo según acción
+  const getMensajeConfirmacion = (): { titulo: string; mensaje: string } => {
+    if (!pacienteSeleccionado || !accionPendiente) {
+      return { titulo: '', mensaje: '' };
+    }
     
-    const pacienteId = pacienteCancelar.paciente_id || pacienteCancelar.paciente?.id || '';
+    const esDerivado = esItemDerivado(pacienteSeleccionado);
+    const tieneCamaDestino = tieneCamaDestinoAsignada(pacienteSeleccionado);
+    const tieneCamaOrigen = tieneCamaActual(pacienteSeleccionado);
     
-    // Guardar posición del scroll
+    if (accionPendiente === 'cancelar') {
+      if (esDerivado) {
+        return {
+          titulo: '¿Cancelar búsqueda y volver al estado previo?',
+          mensaje: 'El paciente volverá a la lista de "Derivados Pendientes" donde podrá ser aceptado o rechazado nuevamente.'
+        };
+      }
+      return {
+        titulo: '¿Cancelar búsqueda y volver a la cama?',
+        mensaje: 'El paciente volverá a su cama actual con estado "Ocupada". Podrá iniciar una nueva búsqueda de cama cuando lo requiera.'
+      };
+    }
+    
+    if (accionPendiente === 'cancelar_asignacion') {
+      if (tieneCamaOrigen) {
+        return {
+          titulo: '¿Cancelar la asignación de cama?',
+          mensaje: 'La cama destino quedará libre. El paciente permanecerá en la lista de espera y su cama de origen quedará en estado "Traslado Saliente" para continuar buscando otra cama.'
+        };
+      }
+      return {
+        titulo: '¿Cancelar la asignación de cama?',
+        mensaje: 'La cama destino quedará libre. El paciente permanecerá en la lista de espera y podrá ser reevaluado o derivado si es necesario.'
+      };
+    }
+    
+    // accionPendiente === 'eliminar'
+    return {
+      titulo: '¿Eliminar paciente del sistema?',
+      mensaje: 'El paciente será eliminado completamente de la lista de espera y del sistema. Esta acción no se puede deshacer. Si es necesario, deberá ser registrado nuevamente.'
+    };
+  };
+
+  // Confirmar acción
+  const handleConfirmarAccion = async () => {
+    if (!pacienteSeleccionado || !accionPendiente) return;
+    
+    const pacienteId = pacienteSeleccionado.paciente_id || pacienteSeleccionado.paciente?.id || '';
     const scrollPosition = window.scrollY;
     
     try {
       setProcesando(true);
-      const result = await api.egresarDeLista(pacienteId);
-      showAlert('success', result.message || 'Paciente removido de lista');
-      setShowCancelarModal(false);
-      setPacienteCancelar(null);
+      
+      let result;
+      if (accionPendiente === 'cancelar') {
+        // Llamar endpoint para cancelar y volver a cama
+        result = await api.cancelarYVolverACama(pacienteId);
+      } else if (accionPendiente === 'cancelar_asignacion') {
+        // NUEVO: Llamar endpoint para cancelar asignación pero mantener en lista
+        result = await api.cancelarAsignacionDesdeLista(pacienteId);
+      } else {
+        // Llamar endpoint para eliminar paciente sin cama
+        result = await api.eliminarPacienteSinCama(pacienteId);
+      }
+      
+      const mensajeExito = accionPendiente === 'cancelar' 
+        ? 'Búsqueda cancelada' 
+        : accionPendiente === 'cancelar_asignacion'
+        ? 'Asignación cancelada - paciente en lista de espera'
+        : 'Paciente eliminado';
+      
+      showAlert('success', result.message || mensajeExito);
+      setShowConfirmModal(false);
+      setPacienteSeleccionado(null);
+      setAccionPendiente(null);
       await recargarTodo();
       
-      // Restaurar posición del scroll
       requestAnimationFrame(() => {
         window.scrollTo(0, scrollPosition);
       });
     } catch (error) {
-      showAlert('error', error instanceof Error ? error.message : 'Error al cancelar');
+      showAlert('error', error instanceof Error ? error.message : 'Error al procesar');
     } finally {
       setProcesando(false);
     }
@@ -175,6 +318,8 @@ export function ListaEspera() {
       </div>
     );
   }
+
+  const { titulo: tituloConfirmacion, mensaje: mensajeConfirmacion } = getMensajeConfirmacion();
 
   return (
     <div className="space-y-4">
@@ -240,7 +385,6 @@ export function ListaEspera() {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Origen
               </th>
-              {/* NUEVA COLUMNA: Destino */}
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Destino
               </th>
@@ -265,13 +409,33 @@ export function ListaEspera() {
             {listaFiltrada.map((item, index) => {
               const paciente = item.paciente;
               const esDerivado = esItemDerivado(item);
+              const tieneCamaOrigen = tieneCamaActual(item);
+              const tieneCamaDestino = tieneCamaDestinoAsignada(item);
               const complejidad = getComplejidad(item);
               const servicioDestino = getServicioDestino(item);
               const camaDestinoInfo = getCamaDestinoInfo(item);
               const esAsignado = item.estado_lista === 'asignado';
               
+              // ============================================
+              // LÓGICA DE BOTONES:
+              // - Reevaluar/Derivar: Solo si NO tiene cama destino asignada
+              // - Asignar cama (modo manual): Solo si NO tiene cama destino Y modo manual activo
+              // - Cancelar asignación: Solo si TIENE cama destino asignada
+              // - Cancelar/Volver: Solo si tiene cama origen (y no tiene cama destino)
+              // - Eliminar: Solo si NO tiene cama origen NI cama destino
+              // ============================================
+              const puedeReevaluarDerivar = !tieneCamaDestino;
+              const puedeAsignarCamaManual = modoManual && !tieneCamaDestino;
+              const puedeCancelarAsignacion = tieneCamaDestino;
+              const puedeCancelarVolver = tieneCamaOrigen && !tieneCamaDestino;
+              const puedeEliminar = !tieneCamaOrigen && !tieneCamaDestino;
+              
               return (
-                <tr key={item.paciente_id || paciente?.id} className="hover:bg-gray-50">
+                <tr 
+                  key={item.paciente_id || paciente?.id} 
+                  className="hover:bg-blue-50 cursor-pointer transition-colors"
+                  onClick={() => handleRowClick(item)}
+                >
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span className="text-sm font-medium text-gray-900">
                       #{item.posicion || index + 1}
@@ -290,7 +454,7 @@ export function ListaEspera() {
                       </div>
                     </div>
                   </td>
-                  {/* Columna Origen - MEJORADA para hospitalizados */}
+                  {/* Columna Origen */}
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="text-sm">
                       {esDerivado ? (
@@ -315,11 +479,10 @@ export function ListaEspera() {
                       )}
                     </div>
                   </td>
-                  {/* NUEVA COLUMNA: Destino */}
+                  {/* Columna Destino */}
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="text-sm">
                       {esAsignado && camaDestinoInfo ? (
-                        // Paciente asignado - mostrar cama destino
                         <div className="flex flex-col">
                           <span className="text-green-600 font-medium flex items-center gap-1">
                             <BedDouble className="w-3 h-3" />
@@ -330,7 +493,6 @@ export function ListaEspera() {
                           )}
                         </div>
                       ) : servicioDestino ? (
-                        // Paciente buscando - mostrar servicio destino
                         <Badge variant={
                           servicioDestino.toLowerCase().includes('uci') ? 'danger' :
                           servicioDestino.toLowerCase().includes('uti') ? 'warning' :
@@ -373,30 +535,74 @@ export function ListaEspera() {
                       {item.estado_lista || 'esperando'}
                     </Badge>
                   </td>
+                  {/* COLUMNA ACCIONES - ACTUALIZADA */}
                   <td className="px-4 py-3 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={() => handleVerPaciente(item)}
-                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
-                        title="Ver paciente"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleReevaluar(item)}
-                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                        title="Reevaluar"
-                      >
-                        <FileText className="w-4 h-4" />
-                      </button>
-                      {/* Botón cancelar siempre visible */}
-                      <button
-                        onClick={() => handleMostrarCancelar(item)}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                        title="Cancelar búsqueda"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      {/* Botón Reevaluar - Solo si NO tiene cama destino asignada */}
+                      {puedeReevaluarDerivar && (
+                        <button
+                          onClick={(e) => handleReevaluar(item, e)}
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                          title="Reevaluar paciente"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      {/* Botón Derivar - Solo si NO tiene cama destino asignada */}
+                      {puedeReevaluarDerivar && (
+                        <button
+                          onClick={(e) => handleDerivar(item, e)}
+                          className="p-1.5 text-purple-600 hover:bg-purple-50 rounded"
+                          title="Derivar a otro hospital"
+                        >
+                          <Send className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      {/* NUEVO: Botón Asignar Cama - Solo en modo manual y sin cama destino */}
+                      {puedeAsignarCamaManual && (
+                        <button
+                          onClick={(e) => handleAbrirAsignacionManual(item, e)}
+                          className="p-1.5 text-green-600 hover:bg-green-50 rounded"
+                          title="Asignar cama manualmente"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      {/* NUEVO: Botón Cancelar Asignación - Solo si tiene cama destino */}
+                      {puedeCancelarAsignacion && (
+                        <button
+                          onClick={(e) => handleMostrarCancelarAsignacion(item, e)}
+                          className="p-1.5 text-orange-600 hover:bg-orange-50 rounded"
+                          title="Cancelar asignación de cama"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      {/* Botón Cancelar/Volver a cama - Solo si tiene cama origen y NO tiene destino */}
+                      {puedeCancelarVolver && (
+                        <button
+                          onClick={(e) => handleMostrarCancelar(item, e)}
+                          className="p-1.5 text-orange-600 hover:bg-orange-50 rounded"
+                          title="Cancelar búsqueda y volver a cama"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      {/* Botón Eliminar - Solo si NO tiene cama origen NI destino */}
+                      {puedeEliminar && (
+                        <button
+                          onClick={(e) => handleMostrarEliminar(item, e)}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                          title="Eliminar paciente del sistema"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -412,32 +618,43 @@ export function ListaEspera() {
         )}
       </div>
 
-      {/* Modal de confirmación para cancelar */}
+      {/* Modal de confirmación unificado */}
       <Modal
-        isOpen={showCancelarModal}
+        isOpen={showConfirmModal}
         onClose={() => {
-          setShowCancelarModal(false);
-          setPacienteCancelar(null);
+          setShowConfirmModal(false);
+          setPacienteSeleccionado(null);
+          setAccionPendiente(null);
         }}
-        title="Confirmar Cancelación"
+        title={
+          accionPendiente === 'eliminar' ? 'Confirmar Eliminación' : 
+          accionPendiente === 'cancelar_asignacion' ? 'Confirmar Cancelación de Asignación' :
+          'Confirmar Cancelación'
+        }
         size="md"
       >
         <div className="space-y-4">
-          <div className="flex items-start gap-3 p-4 bg-yellow-50 rounded-lg">
-            <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div className={`flex items-start gap-3 p-4 rounded-lg ${
+            accionPendiente === 'eliminar' ? 'bg-red-50' : 'bg-yellow-50'
+          }`}>
+            <AlertTriangle className={`w-6 h-6 flex-shrink-0 mt-0.5 ${
+              accionPendiente === 'eliminar' ? 'text-red-600' : 'text-yellow-600'
+            }`} />
             <div>
-              <p className="font-medium text-yellow-800">
-                ¿Está seguro que desea cancelar la búsqueda de cama?
+              <p className={`font-medium ${
+                accionPendiente === 'eliminar' ? 'text-red-800' : 'text-yellow-800'
+              }`}>
+                {tituloConfirmacion}
               </p>
-              <p className="text-sm text-yellow-700 mt-1">
-                Paciente: <strong>{pacienteCancelar?.nombre || pacienteCancelar?.paciente?.nombre}</strong>
+              <p className="text-sm text-gray-700 mt-1">
+                Paciente: <strong>{pacienteSeleccionado?.nombre || pacienteSeleccionado?.paciente?.nombre}</strong>
               </p>
             </div>
           </div>
           
           <div className="p-4 bg-gray-50 rounded-lg">
             <p className="text-sm text-gray-600">
-              {getMensajeCancelacion(pacienteCancelar)}
+              {mensajeConfirmacion}
             </p>
           </div>
 
@@ -445,22 +662,132 @@ export function ListaEspera() {
             <Button
               variant="secondary"
               onClick={() => {
-                setShowCancelarModal(false);
-                setPacienteCancelar(null);
+                setShowConfirmModal(false);
+                setPacienteSeleccionado(null);
+                setAccionPendiente(null);
               }}
             >
               Volver
             </Button>
             <Button
-              variant="danger"
-              onClick={handleConfirmarCancelar}
+              variant={accionPendiente === 'eliminar' ? 'danger' : 'warning'}
+              onClick={handleConfirmarAccion}
               loading={procesando}
             >
-              Confirmar Cancelación
+              {accionPendiente === 'eliminar' ? 'Eliminar Paciente' : 
+               accionPendiente === 'cancelar_asignacion' ? 'Cancelar Asignación' :
+               'Confirmar Cancelación'}
             </Button>
           </div>
         </div>
       </Modal>
+
+      {/* ============================================ */}
+      {/* NUEVO: Modal de Asignación Manual de Cama */}
+      {/* ============================================ */}
+      <Modal
+        isOpen={showAsignacionModal}
+        onClose={() => {
+          setShowAsignacionModal(false);
+          setPacienteAsignar(null);
+          setCamaSeleccionada(null);
+          setBusquedaCama('');
+        }}
+        title="Asignar Cama Manualmente"
+        size="lg"
+      >
+        <div className="space-y-4">
+          {/* Info del paciente */}
+          <div className="bg-blue-50 p-3 rounded-lg">
+            <div className="flex items-center gap-2">
+              <User className="w-5 h-5 text-blue-600" />
+              <div>
+                <p className="font-medium text-blue-900">
+                  {pacienteAsignar?.nombre || pacienteAsignar?.paciente?.nombre}
+                </p>
+                <p className="text-sm text-blue-700">
+                  {pacienteAsignar?.run || pacienteAsignar?.paciente?.run}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Búsqueda de camas */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar cama por identificador o servicio..."
+              value={busquedaCama}
+              onChange={(e) => setBusquedaCama(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Lista de camas disponibles */}
+          <div className="max-h-80 overflow-y-auto border rounded-lg">
+            {camasLibresFiltradas.length === 0 ? (
+              <div className="p-4 text-center text-gray-500">
+                No hay camas libres disponibles
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2 p-2">
+                {camasLibresFiltradas.map((cama) => (
+                  <button
+                    key={cama.id}
+                    onClick={() => setCamaSeleccionada(cama.id)}
+                    className={`p-3 border rounded-lg text-left hover:bg-gray-50 transition-colors ${
+                      camaSeleccionada === cama.id ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-200' : ''
+                    }`}
+                  >
+                    <p className="font-medium text-sm flex items-center gap-1">
+                      <BedDouble className="w-3 h-3" />
+                      {cama.identificador}
+                    </p>
+                    <p className="text-xs text-gray-500">{cama.servicio_nombre}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Botones */}
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowAsignacionModal(false);
+                setPacienteAsignar(null);
+                setCamaSeleccionada(null);
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!camaSeleccionada || procesando}
+              loading={procesando}
+              onClick={handleConfirmarAsignacion}
+            >
+              Asignar Cama
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal de Derivación Directa */}
+      <ModalDerivacionDirecta
+        isOpen={showDerivacionModal}
+        onClose={() => {
+          setShowDerivacionModal(false);
+          setPacienteDerivar(null);
+        }}
+        paciente={pacienteDerivar}
+        onDerivacionCompletada={() => {
+          setShowDerivacionModal(false);
+          setPacienteDerivar(null);
+        }}
+      />
     </div>
   );
 }
