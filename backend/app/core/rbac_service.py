@@ -10,6 +10,31 @@ from app.models.usuario import Usuario, RolEnum, PermisoEnum
 
 
 # ============================================
+# MAPEO DE CÓDIGOS
+# ============================================
+
+# Mapeo de códigos largos a códigos cortos de la BD
+CODIGO_HOSPITAL_MAP = {
+    "puerto_montt": "PM",
+    "llanquihue": "LL",
+    "calbuco": "CA",
+}
+
+CODIGO_SERVICIO_MAP = {
+    "medicina": "Med",
+    "cirugia": "Cirug",
+    "uci": "UCI",
+    "uti": "UTI",
+    "pediatria": "Ped",
+    "obstetricia": "Obst",
+    "aislamiento": "Aisl",
+    "medicoquirurgico": "MQ",
+    "urgencias": "Urg",
+    "ambulatorio": "Amb",
+}
+
+
+# ============================================
 # MAPEO DE SERVICIOS POR ROL
 # ============================================
 
@@ -80,6 +105,7 @@ class RBACService:
     def puede_acceder_hospital(user: Usuario, hospital_id: str) -> bool:
         """
         Verifica si un usuario puede acceder a un hospital específico.
+        Soporta comparación por UUID o código (largo o corto).
 
         Lógica:
         - Capa 1 (Global): Acceso a todos los hospitales
@@ -94,13 +120,23 @@ class RBACService:
         if not user.hospital_id:
             return True
 
-        # Verificar que coincida el hospital
-        return user.hospital_id == hospital_id
+        # Normalizar código del usuario (convertir formato largo a corto si aplica)
+        user_hospital_codigo = CODIGO_HOSPITAL_MAP.get(user.hospital_id, user.hospital_id)
+
+        # Normalizar código del hospital objetivo
+        hospital_id_normalizado = CODIGO_HOSPITAL_MAP.get(hospital_id, hospital_id)
+
+        # Verificar que coincida el hospital (comparar ambos formatos)
+        return (user.hospital_id == hospital_id or
+                user_hospital_codigo == hospital_id or
+                user.hospital_id == hospital_id_normalizado or
+                user_hospital_codigo == hospital_id_normalizado)
 
     @staticmethod
     def puede_acceder_servicio(user: Usuario, servicio_id: str) -> bool:
         """
         Verifica si un usuario puede acceder a un servicio específico.
+        Soporta comparación por UUID o código (largo o corto).
 
         Lógica:
         - Capa 1 (Global): Acceso a todos los servicios
@@ -119,7 +155,15 @@ class RBACService:
         if user.rol in ROLES_ACCESO_SERVICIO:
             if not user.servicio_id:
                 return True  # Sin servicio asignado = sin restricción
-            return user.servicio_id == servicio_id
+
+            # Normalizar códigos
+            user_servicio_codigo = CODIGO_SERVICIO_MAP.get(user.servicio_id, user.servicio_id)
+            servicio_id_normalizado = CODIGO_SERVICIO_MAP.get(servicio_id, servicio_id)
+
+            return (user.servicio_id == servicio_id or
+                    user_servicio_codigo == servicio_id or
+                    user.servicio_id == servicio_id_normalizado or
+                    user_servicio_codigo == servicio_id_normalizado)
 
         # Por defecto, sin restricción
         return True
