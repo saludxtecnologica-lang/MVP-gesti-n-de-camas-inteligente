@@ -426,48 +426,57 @@ class AsignacionService:
         self,
         paciente: Paciente,
         hospital_id: str
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, bool, str]:
         """
         Verifica si un hospital tiene el tipo de cama que requiere el paciente.
-        
-        MEJORADO: Ahora verifica si realmente hay camas LIBRES compatibles,
-        no solo si existe el tipo de servicio.
-        
+
+        ACTUALIZADO v4.0: Ahora distingue entre:
+        - No tener el tipo de servicio (debe buscar en red)
+        - Tener el servicio pero sin camas libres (solo lista de espera)
+
         Args:
             paciente: Paciente a verificar
             hospital_id: ID del hospital a verificar
-        
+
         Returns:
-            Tuple (tiene_tipo_cama, mensaje_explicativo)
+            Tuple (tiene_tipo_servicio, tiene_camas_libres, mensaje_explicativo)
+
+            Casos:
+            - (False, False, msg): No tiene el tipo de servicio → BUSCAR EN RED
+            - (True, True, msg): Tiene servicio y camas libres → PROCEDER NORMAL
+            - (True, False, msg): Tiene servicio sin camas → LISTA DE ESPERA ÚNICAMENTE
         """
         complejidad = self.calcular_complejidad(paciente)
         servicios_requeridos = MAPEO_COMPLEJIDAD_SERVICIO.get(complejidad, [])
-        
+
         # Buscar servicios del hospital
         query = select(Servicio).where(Servicio.hospital_id == hospital_id)
         servicios = self.session.exec(query).all()
         tipos_servicios = [s.tipo for s in servicios]
-        
+
         # Verificar si tiene al menos un servicio compatible
         servicios_disponibles = [s for s in servicios_requeridos if s in tipos_servicios]
-        
+
         if not servicios_disponibles:
+            # CASO 1: NO TIENE EL TIPO DE SERVICIO → BUSCAR EN RED
             nombres_requeridos = [s.value for s in servicios_requeridos]
             nombres_hospital = [s.value for s in tipos_servicios]
-            return False, (
+            return False, False, (
                 f"Hospital no tiene servicios compatibles. "
                 f"Requiere: {', '.join(nombres_requeridos)}. "
                 f"Disponibles: {', '.join(nombres_hospital)}"
             )
-        
-        # NUEVO: Verificar si hay camas LIBRES en esos servicios
+
+        # Verificar si hay camas LIBRES en esos servicios
         cama_compatible = self.buscar_cama_compatible(paciente, hospital_id)
-        
+
         if cama_compatible:
-            return True, f"Hay camas libres compatibles en el hospital"
+            # CASO 2: TIENE SERVICIO Y CAMAS LIBRES → PROCEDER NORMAL
+            return True, True, f"Hay camas libres compatibles en el hospital"
         else:
+            # CASO 3: TIENE SERVICIO PERO SIN CAMAS → SOLO LISTA DE ESPERA
             nombres_requeridos = [s.value for s in servicios_requeridos]
-            return False, (
+            return True, False, (
                 f"Hospital tiene servicios compatibles ({', '.join(nombres_requeridos)}) "
                 f"pero no hay camas libres disponibles actualmente"
             )

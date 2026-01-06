@@ -94,18 +94,19 @@ export function ModalBusquedaCamaRed({
   
   const verificarDisponibilidad = async () => {
     if (!paciente) return;
-    
+
     setLoading(true);
     try {
       const resultado = await api.verificarDisponibilidadTipoCama(paciente.id);
-      
-      if (resultado.tiene_tipo_cama) {
-        // El hospital tiene el tipo de cama, proceder con búsqueda normal
-        // Esto no debería pasar si llegamos aquí, pero manejamos el caso
+
+      // Si el hospital tiene el tipo de servicio (con o sin camas libres)
+      // no debería abrir este modal
+      if (resultado.tiene_tipo_servicio) {
+        // Esto no debería suceder con la nueva lógica, pero manejamos el caso
         onClose();
-        showAlert('info', 'El hospital cuenta con el tipo de cama requerido');
+        showAlert('info', 'El hospital cuenta con el tipo de servicio requerido. El paciente irá a lista de espera.');
       } else {
-        // No hay tipo de cama en este hospital
+        // NO tiene el tipo de servicio en este hospital → Buscar en red
         setMensajeNoDisponible(resultado.mensaje);
         setEstado('sin_tipo_cama');
       }

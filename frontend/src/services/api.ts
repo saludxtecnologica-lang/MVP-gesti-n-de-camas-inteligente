@@ -479,8 +479,9 @@ export async function verificarViabilidadDerivacion(
 }
 
 export interface VerificacionDisponibilidadTipoCama {
-  tiene_tipo_cama: boolean;
-  mensaje: string;
+  tiene_tipo_servicio: boolean;  // Si el hospital tiene el tipo de servicio requerido
+  tiene_camas_libres: boolean;   // Si hay camas libres en ese servicio
+  mensaje: string;               // Mensaje explicativo
   paciente_id: string;
   hospital_id: string;
 }
