@@ -714,11 +714,7 @@ async def actualizar_telefonos_hospital(
             status_code=403,
             detail="No tienes permisos para modificar este hospital"
         )
-    hospital = repo.obtener_por_id(hospital_id)
-    
-    if not hospital:
-        raise HTTPException(status_code=404, detail="Hospital no encontrado")
-    
+
     # Actualizar teléfonos
     if data.telefono_urgencias is not None:
         hospital.telefono_urgencias = data.telefono_urgencias.strip() if data.telefono_urgencias.strip() else None
