@@ -30,14 +30,41 @@ from pydantic import BaseModel
 router = APIRouter()
 
 
+# Mapeo de códigos largos a códigos cortos de la BD
+CODIGO_HOSPITAL_MAP = {
+    "puerto_montt": "PM",
+    "llanquihue": "LL",
+    "calbuco": "CA",
+}
+
+CODIGO_SERVICIO_MAP = {
+    "medicina": "Med",
+    "cirugia": "Cirug",
+    "uci": "UCI",
+    "uti": "UTI",
+    "pediatria": "Ped",
+    "obstetricia": "Obst",
+    "aislamiento": "Aisl",
+    "medicoquirurgico": "MQ",
+    "urgencias": "Urg",
+    "ambulatorio": "Amb",
+}
+
+
 def puede_acceder_hospital_por_codigo(user: Usuario, hospital: Hospital) -> bool:
     """Helper para verificar acceso a hospital comparando por código o UUID."""
     if user.rol in [RolEnum.PROGRAMADOR, RolEnum.DIRECTIVO_RED]:
         return True
     if not user.hospital_id:
         return True
-    # Comparar por UUID o por código
-    return user.hospital_id == hospital.id or user.hospital_id == hospital.codigo
+
+    # Normalizar código del usuario (convertir formato largo a corto)
+    user_hospital_codigo = CODIGO_HOSPITAL_MAP.get(user.hospital_id, user.hospital_id)
+
+    # Comparar por UUID o por código (soporta ambos formatos)
+    return (user.hospital_id == hospital.id or
+            user_hospital_codigo == hospital.codigo or
+            user.hospital_id == hospital.codigo)
 
 
 @router.get("", response_model=List[HospitalResponse])
@@ -55,9 +82,19 @@ def obtener_hospitales(
         # None significa acceso a todos los hospitales (PROGRAMADOR, DIRECTIVO_RED)
         hospitales = hospitales_todos
     else:
+        # Normalizar códigos en la lista de permitidos
+        hospitales_permitidos_normalizados = set()
+        for h_id in hospitales_permitidos:
+            hospitales_permitidos_normalizados.add(h_id)
+            # Agregar también la versión corta del código si existe
+            codigo_corto = CODIGO_HOSPITAL_MAP.get(h_id)
+            if codigo_corto:
+                hospitales_permitidos_normalizados.add(codigo_corto)
+
         # Filtrar por los hospitales permitidos (soporta comparación por código o UUID)
         hospitales = [h for h in hospitales_todos
-                     if h.id in hospitales_permitidos or h.codigo in hospitales_permitidos]
+                     if h.id in hospitales_permitidos_normalizados or
+                        h.codigo in hospitales_permitidos_normalizados]
 
     resultado = []
     
@@ -167,9 +204,13 @@ def obtener_servicios(
     
     for servicio in servicios:
         # Filtrar por servicio si el usuario tiene restricción de servicio
-        # Soporta comparación por código o UUID
+        # Soporta comparación por código o UUID (normaliza códigos largos a cortos)
         if current_user.servicio_id:
+            # Normalizar código del usuario
+            user_servicio_codigo = CODIGO_SERVICIO_MAP.get(current_user.servicio_id, current_user.servicio_id)
+
             servicio_coincide = (current_user.servicio_id == servicio.id or
+                                user_servicio_codigo == servicio.codigo or
                                 current_user.servicio_id == servicio.codigo)
             if not servicio_coincide:
                 continue
@@ -218,9 +259,13 @@ def obtener_camas_hospital(
         servicio = sala.servicio if sala else None
 
         # Filtrar por servicio si el usuario tiene restricción de servicio
-        # Soporta comparación por código o UUID
+        # Soporta comparación por código o UUID (normaliza códigos largos a cortos)
         if servicio and current_user.servicio_id:
+            # Normalizar código del usuario
+            user_servicio_codigo = CODIGO_SERVICIO_MAP.get(current_user.servicio_id, current_user.servicio_id)
+
             servicio_coincide = (current_user.servicio_id == servicio.id or
+                                user_servicio_codigo == servicio.codigo or
                                 current_user.servicio_id == servicio.codigo)
             if not servicio_coincide:
                 continue
