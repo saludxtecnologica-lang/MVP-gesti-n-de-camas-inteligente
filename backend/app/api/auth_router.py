@@ -110,7 +110,7 @@ async def refresh_token(
         )
     
     # Obtener usuario
-    user = auth_service.get_user_by_id(token_record.usuario_id, session)
+    user = auth_service.get_user_by_id(token_record.user_id, session)
     
     if not user or not user.is_active:
         raise HTTPException(
