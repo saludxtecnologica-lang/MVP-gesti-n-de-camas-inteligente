@@ -8,8 +8,11 @@ from datetime import datetime
 import logging
 
 from app.core.database import get_session
+from app.core.auth_dependencies import get_current_user
+from app.core.rbac_service import rbac_service
 from app.core.websocket_manager import manager
 from app.core.exceptions import PacienteNotFoundError, ValidationError, CamaNotFoundError
+from app.models.usuario import Usuario, PermisoEnum, RolEnum
 from app.schemas.traslado import TrasladoManualRequest, IntercambioRequest
 from app.schemas.responses import MessageResponse
 from app.services.traslado_service import TrasladoService
@@ -28,9 +31,19 @@ logger = logging.getLogger("gestion_camas.manual")
 @router.post("/asignar-desde-cama", response_model=MessageResponse)
 async def asignar_manual_desde_cama(
     request: TrasladoManualRequest,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Asigna manualmente un paciente a una cama desde otra cama."""
+    """
+    Asigna manualmente un paciente a una cama desde otra cama.
+    Solo GESTOR_CAMAS de Puerto Montt tiene acceso a modo manual.
+    """
+    # Verificar acceso a modo manual
+    if not rbac_service.puede_usar_modo_manual(current_user, request.paciente_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
+        )
     service = TrasladoService(session)
     
     try:
@@ -62,13 +75,21 @@ async def asignar_manual_desde_cama(
 @router.post("/asignar-desde-lista", response_model=MessageResponse)
 async def asignar_manual_desde_lista(
     request: TrasladoManualRequest,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     Asigna manualmente un paciente de la lista de espera a una cama.
-    
+    Solo GESTOR_CAMAS de Puerto Montt tiene acceso a modo manual.
+
     CORREGIDO: Usa el método correcto asignar_cama() del AsignacionService.
     """
+    # Verificar acceso a modo manual
+    if not rbac_service.puede_usar_modo_manual(current_user, request.paciente_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
+        )
     paciente_repo = PacienteRepository(session)
     cama_repo = CamaRepository(session)
     service = AsignacionService(session)

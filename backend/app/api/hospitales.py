@@ -1,5 +1,5 @@
 """
-Endpoints de Hospitales.
+Endpoints de Hospitales con restricciones RBAC.
 
 CORREGIDO: Lista de espera ahora incluye pacientes con cama_destino_id asignada
 que están pendientes de completar el traslado físico.
@@ -10,6 +10,9 @@ from typing import Optional, List
 from datetime import datetime, timezone
 
 from app.core.database import get_session
+from app.core.auth_dependencies import get_current_user
+from app.core.rbac_service import rbac_service
+from app.models.usuario import Usuario, PermisoEnum
 from app.models.hospital import Hospital
 from app.models.servicio import Servicio
 from app.models.sala import Sala
@@ -28,10 +31,17 @@ router = APIRouter()
 
 
 @router.get("", response_model=List[HospitalResponse])
-def obtener_hospitales(session: Session = Depends(get_session)):
-    """Obtiene todos los hospitales con estadísticas."""
+def obtener_hospitales(
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """Obtiene todos los hospitales con estadísticas. Filtrado por permisos del usuario."""
     repo = HospitalRepository(session)
-    hospitales = repo.obtener_todos()
+    hospitales_todos = repo.obtener_todos()
+
+    # Filtrar hospitales según permisos del usuario
+    hospitales_permitidos = rbac_service.obtener_hospitales_permitidos(current_user)
+    hospitales = [h for h in hospitales_todos if h.id in hospitales_permitidos]
     resultado = []
     
     for hospital in hospitales:
@@ -78,8 +88,19 @@ def obtener_hospitales(session: Session = Depends(get_session)):
 
 
 @router.get("/{hospital_id}", response_model=HospitalResponse)
-def obtener_hospital(hospital_id: str, session: Session = Depends(get_session)):
-    """Obtiene un hospital específico."""
+def obtener_hospital(
+    hospital_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """Obtiene un hospital específico. Requiere acceso al hospital."""
+    # Verificar acceso al hospital
+    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para acceder a este hospital"
+        )
+
     repo = HospitalRepository(session)
     hospital = repo.obtener_por_id(hospital_id)
     
@@ -104,8 +125,19 @@ def obtener_hospital(hospital_id: str, session: Session = Depends(get_session)):
 
 
 @router.get("/{hospital_id}/servicios", response_model=List[ServicioResponse])
-def obtener_servicios(hospital_id: str, session: Session = Depends(get_session)):
-    """Obtiene los servicios de un hospital."""
+def obtener_servicios(
+    hospital_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """Obtiene los servicios de un hospital. Filtrado por permisos del usuario."""
+    # Verificar acceso al hospital
+    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para acceder a este hospital"
+        )
+
     repo = HospitalRepository(session)
     cama_repo = CamaRepository(session)
     
@@ -113,9 +145,13 @@ def obtener_servicios(hospital_id: str, session: Session = Depends(get_session))
     resultado = []
     
     for servicio in servicios:
+        # Filtrar por servicio si el usuario tiene restricción de servicio
+        if current_user.servicio_id and current_user.servicio_id != servicio.id:
+            continue
+
         camas = cama_repo.obtener_por_servicio(servicio.id)
         camas_libres = len([c for c in camas if c.estado == EstadoCamaEnum.LIBRE])
-        
+
         resultado.append(ServicioResponse(
             id=servicio.id,
             nombre=servicio.nombre,
@@ -125,13 +161,24 @@ def obtener_servicios(hospital_id: str, session: Session = Depends(get_session))
             total_camas=len(camas),
             camas_libres=camas_libres
         ))
-    
+
     return resultado
 
 
 @router.get("/{hospital_id}/camas", response_model=List[CamaResponse])
-def obtener_camas_hospital(hospital_id: str, session: Session = Depends(get_session)):
-    """Obtiene todas las camas de un hospital con información completa."""
+def obtener_camas_hospital(
+    hospital_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """Obtiene todas las camas de un hospital. Filtrado por permisos del usuario."""
+    # Verificar acceso al hospital
+    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para acceder a este hospital"
+        )
+
     repo = HospitalRepository(session)
     camas = repo.obtener_camas_hospital(hospital_id)
     
@@ -139,6 +186,10 @@ def obtener_camas_hospital(hospital_id: str, session: Session = Depends(get_sess
     for cama in camas:
         sala = cama.sala
         servicio = sala.servicio if sala else None
+
+        # Filtrar por servicio si el usuario tiene restricción de servicio
+        if servicio and current_user.servicio_id and current_user.servicio_id != servicio.id:
+            continue
         
         # Obtener paciente actual
         paciente = None
@@ -191,9 +242,13 @@ def obtener_camas_hospital(hospital_id: str, session: Session = Depends(get_sess
 # que están pendientes de completar el traslado físico.
 # ============================================
 @router.get("/{hospital_id}/lista-espera")
-def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_session)):
+def obtener_lista_espera(
+    hospital_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
     """
-    Obtiene la lista de espera de un hospital.
+    Obtiene la lista de espera de un hospital. Filtrado por permisos del usuario.
     
     ncluye pacientes que:
     1. Están en la cola de prioridad (esperando asignación)
@@ -205,9 +260,16 @@ def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_sessio
     - Tiempo de espera
     - Datos clínicos relevantes
     """
+    # Verificar acceso al hospital
+    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para acceder a este hospital"
+        )
+
     repo = HospitalRepository(session)
     hospital = repo.obtener_por_id(hospital_id)
-    
+
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital no encontrado")
     
@@ -273,8 +335,26 @@ def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_sessio
     # ============================================
     pacientes_response = []
     cama_repo = CamaRepository(session)
-    
+
     for posicion, (paciente, prioridad) in enumerate(pacientes_ordenados, 1):
+        # Filtrar pacientes según acceso del usuario
+        # Si el usuario tiene servicio asignado, solo ver pacientes de ese servicio
+        if current_user.servicio_id:
+            # El usuario puede ver el paciente si:
+            # - El servicio del paciente coincide con el del usuario (origen o destino)
+            paciente_servicio_origen = None
+            paciente_servicio_destino = getattr(paciente, 'servicio_destino', None)
+
+            # Obtener servicio origen desde cama_id si existe
+            if paciente.cama_id:
+                cama_origen = cama_repo.obtener_por_id(paciente.cama_id)
+                if cama_origen and cama_origen.sala and cama_origen.sala.servicio:
+                    paciente_servicio_origen = cama_origen.sala.servicio.id
+
+            # Si no coincide con el servicio del usuario, saltar
+            if (current_user.servicio_id != paciente_servicio_origen and
+                current_user.servicio_id != paciente_servicio_destino):
+                continue
         # Calcular tiempo de espera
         tiempo_espera_min = 0
         if paciente.timestamp_lista_espera:
@@ -396,19 +476,30 @@ def obtener_lista_espera(hospital_id: str, session: Session = Depends(get_sessio
 # ENDPOINT: DERIVADOS PENDIENTES
 # ============================================
 @router.get("/{hospital_id}/derivados")
-def obtener_derivados_hospital(hospital_id: str, session: Session = Depends(get_session)):
+def obtener_derivados_hospital(
+    hospital_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
     """
-    Obtiene pacientes derivados pendientes hacia un hospital.
+    Obtiene pacientes derivados pendientes hacia un hospital. Filtrado por permisos.
     
     Estos son pacientes que han sido presentados desde otros hospitales
     y están esperando ser aceptados o rechazados.
     """
+    # Verificar acceso al hospital
+    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para acceder a este hospital"
+        )
+
     repo = HospitalRepository(session)
     hospital = repo.obtener_por_id(hospital_id)
-    
+
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital no encontrado")
-    
+
     # Buscar pacientes con derivación pendiente hacia este hospital
     query = select(Paciente).where(
         Paciente.derivacion_hospital_destino_id == hospital_id,
@@ -579,11 +670,19 @@ def obtener_telefonos_hospital(hospital_id: str, session: Session = Depends(get_
 async def actualizar_telefonos_hospital(
     hospital_id: str,
     data: HospitalTelefonosUpdate,
+    current_user: Usuario = Depends(require_not_readonly()),
     session: Session = Depends(get_session)
 ):
     """
     Actualiza los teléfonos de urgencias y ambulatorio de un hospital.
+    Requiere permisos de escritura.
     """
+    # Verificar acceso al hospital
+    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para modificar este hospital"
+        )
     repo = HospitalRepository(session)
     hospital = repo.obtener_por_id(hospital_id)
     
@@ -660,11 +759,19 @@ async def actualizar_telefono_servicio(
     hospital_id: str,
     servicio_id: str,
     data: ServicioTelefonoUpdate,
+    current_user: Usuario = Depends(require_not_readonly()),
     session: Session = Depends(get_session)
 ):
     """
     Actualiza el teléfono de contacto de un servicio.
+    Requiere permisos de escritura.
     """
+    # Verificar acceso al hospital
+    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para modificar este hospital"
+        )
     servicio = session.get(Servicio, servicio_id)
     
     if not servicio:
@@ -712,10 +819,12 @@ async def actualizar_telefono_servicio(
 async def actualizar_telefonos_batch(
     hospital_id: str,
     data: dict,  # {"hospital": {...}, "servicios": {...}}
+    current_user: Usuario = Depends(require_not_readonly()),
     session: Session = Depends(get_session)
 ):
     """
     Actualiza todos los teléfonos de un hospital en una sola llamada.
+    Requiere permisos de escritura.
     
     Body esperado:
     {
