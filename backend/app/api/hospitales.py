@@ -285,19 +285,19 @@ def obtener_lista_espera(
     - Tiempo de espera
     - Datos clínicos relevantes
     """
-    # Verificar acceso al hospital
-    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
-        raise HTTPException(
-            status_code=403,
-            detail="No tienes permisos para acceder a este hospital"
-        )
-
     repo = HospitalRepository(session)
     hospital = repo.obtener_por_id(hospital_id)
 
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital no encontrado")
-    
+
+    # Verificar acceso (soporta comparación por código o UUID)
+    if not puede_acceder_hospital_por_codigo(current_user, hospital):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para acceder a este hospital"
+        )
+
     # ============================================
     # OBTENER PACIENTES DE MÚLTIPLES FUENTES
     # ============================================
