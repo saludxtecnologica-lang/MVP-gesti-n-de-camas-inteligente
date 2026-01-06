@@ -41,7 +41,13 @@ def obtener_hospitales(
 
     # Filtrar hospitales según permisos del usuario
     hospitales_permitidos = rbac_service.obtener_hospitales_permitidos(current_user)
-    hospitales = [h for h in hospitales_todos if h.id in hospitales_permitidos]
+    if hospitales_permitidos is None:
+        # None significa acceso a todos los hospitales (PROGRAMADOR, DIRECTIVO_RED)
+        hospitales = hospitales_todos
+    else:
+        # Filtrar por los hospitales permitidos
+        hospitales = [h for h in hospitales_todos if h.id in hospitales_permitidos]
+
     resultado = []
     
     for hospital in hospitales:
