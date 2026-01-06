@@ -11,6 +11,7 @@ from sqlmodel import Session
 from app.core.database import get_session
 from app.models.usuario import Usuario, PermisoEnum, RolEnum
 from app.services.auth_service import auth_service
+from app.core.rbac_service import rbac_service
 
 
 # Esquema de seguridad Bearer
@@ -283,9 +284,118 @@ def can_manage_user(current_user: Usuario, target_user: Usuario) -> bool:
     # Solo super_admin puede gestionar otros super_admin
     if target_user.rol == RolEnum.SUPER_ADMIN:
         return current_user.rol == RolEnum.SUPER_ADMIN
-    
+
     # Admin puede gestionar usuarios no-super_admin
     if current_user.rol in [RolEnum.SUPER_ADMIN, RolEnum.ADMIN]:
         return True
-    
+
     return False
+
+
+# ============================================
+# DEPENDENCIES RBAC AVANZADOS (CAPA DE SEGURIDAD)
+# ============================================
+
+def require_not_readonly():
+    """
+    Dependency que verifica que el usuario NO sea de solo lectura.
+    Lanza excepción si tiene perfil de solo lectura.
+    """
+    async def readonly_checker(
+        current_user: Usuario = Depends(get_current_user)
+    ) -> Usuario:
+        rbac_service.verificar_restriccion_escritura(current_user, "operaciones de escritura")
+        return current_user
+
+    return readonly_checker
+
+
+def require_hospital_access(hospital_id: str):
+    """
+    Dependency que verifica acceso a un hospital específico.
+
+    Uso:
+        @router.get("/hospitales/{hospital_id}", dependencies=[Depends(require_hospital_access)])
+    """
+    async def hospital_checker(
+        current_user: Usuario = Depends(get_current_user)
+    ) -> Usuario:
+        if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+            raise PermissionError(
+                f"No tienes acceso al hospital: {hospital_id}"
+            )
+        return current_user
+
+    return hospital_checker
+
+
+def require_servicio_access(servicio_id: str):
+    """
+    Dependency que verifica acceso a un servicio específico.
+
+    Uso:
+        @router.get("/servicios/{servicio_id}", dependencies=[Depends(require_servicio_access)])
+    """
+    async def servicio_checker(
+        current_user: Usuario = Depends(get_current_user)
+    ) -> Usuario:
+        if not rbac_service.puede_acceder_servicio(current_user, servicio_id):
+            raise PermissionError(
+                f"No tienes acceso al servicio: {servicio_id}"
+            )
+        return current_user
+
+    return servicio_checker
+
+
+def require_dashboard_access():
+    """
+    Dependency que verifica acceso al dashboard de camas.
+    Urgencias y Ambulatorio NO tienen acceso.
+    """
+    async def dashboard_checker(
+        current_user: Usuario = Depends(get_current_user)
+    ) -> Usuario:
+        if not rbac_service.tiene_acceso_dashboard(current_user):
+            raise PermissionError(
+                f"Tu rol ({current_user.rol.value}) no tiene acceso al dashboard de camas"
+            )
+        return current_user
+
+    return dashboard_checker
+
+
+def require_modo_manual_access(hospital_id: str):
+    """
+    Dependency que verifica acceso al modo manual según hospital.
+    """
+    async def modo_manual_checker(
+        current_user: Usuario = Depends(get_current_user)
+    ) -> Usuario:
+        if not rbac_service.puede_usar_modo_manual(current_user, hospital_id):
+            raise PermissionError(
+                "No tienes permisos para usar el modo manual en este hospital"
+            )
+        return current_user
+
+    return modo_manual_checker
+
+
+async def get_user_hospitales_permitidos(
+    current_user: Usuario = Depends(get_current_user)
+) -> Optional[List[str]]:
+    """
+    Obtiene la lista de hospitales permitidos para el usuario.
+    Returns None si tiene acceso a todos.
+    """
+    return rbac_service.obtener_hospitales_permitidos(current_user)
+
+
+async def get_user_servicios_permitidos(
+    current_user: Usuario = Depends(get_current_user)
+) -> Optional[List[str]]:
+    """
+    Obtiene la lista de servicios permitidos para el usuario.
+    Returns None si tiene acceso a todos.
+    """
+    return rbac_service.obtener_servicios_permitidos(current_user)

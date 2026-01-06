@@ -180,74 +180,150 @@ class RolPermisos(BaseModel):
     permisos: List[str]
 
 
-# Descripciones de roles para el frontend
+# Descripciones de roles para el frontend (Sistema RBAC Multinivel)
 ROLES_INFO = {
-    RolEnum.SUPER_ADMIN: {
-        "nombre": "Super Administrador",
-        "descripcion": "Acceso total al sistema, gestión de usuarios y configuración global"
+    # ========== CAPA 1: ADMINISTRACIÓN Y RED (NIVEL GLOBAL) ==========
+    RolEnum.PROGRAMADOR: {
+        "nombre": "Equipo Programador",
+        "descripcion": "Acceso irrestricto a todas las funciones, configuraciones y bases de datos. Mantenimiento preventivo y soporte de nivel raíz.",
+        "capa": "Administración y Red (Global)",
+        "alcance": "Totalidad del sistema (Multi-hospital)",
+        "solo_lectura": False,
     },
-    RolEnum.ADMIN: {
-        "nombre": "Administrador",
-        "descripcion": "Administración del sistema sin gestión de super admins"
+    RolEnum.DIRECTIVO_RED: {
+        "nombre": "Equipo Directivo de Red",
+        "descripcion": "Visualización de todos los hospitales (Puerto Montt, Llanquihue, Calbuco). Ver Dashboards, listas de espera, derivaciones y resúmenes de paciente. BLOQUEO TOTAL DE ESCRITURA.",
+        "capa": "Administración y Red (Global)",
+        "alcance": "Todos los hospitales de la red",
+        "solo_lectura": True,
+    },
+
+    # ========== CAPA 2: GESTIÓN LOCAL (NIVEL HOSPITALARIO) ==========
+    RolEnum.DIRECTIVO_HOSPITAL: {
+        "nombre": "Equipo Directivo Hospital",
+        "descripcion": "Visualización completa de su hospital específico. Dashboards, listas de espera y resúmenes de pacientes del recinto. Sin permisos de registro o cambios operativos.",
+        "capa": "Gestión Local (Hospitalario)",
+        "alcance": "Su hospital específico",
+        "solo_lectura": True,
     },
     RolEnum.GESTOR_CAMAS: {
-        "nombre": "Gestor de Camas",
-        "descripcion": "Gestión completa de camas, traslados y asignaciones"
+        "nombre": "Equipo Gestión de Camas (Puerto Montt)",
+        "descripcion": "Realizar y aceptar derivaciones, traslados, omitir pausas de oxígeno, eliminar registros, dar altas y egresos. Bloquear camas y activar Modo Manual. NO pueden reevaluar clínicamente ni registrar pacientes inicialmente.",
+        "capa": "Gestión Local (Hospitalario)",
+        "alcance": "Todos los servicios del Hospital Puerto Montt",
+        "solo_lectura": False,
     },
-    RolEnum.COORDINADOR_CAMAS: {
-        "nombre": "Coordinador de Camas",
-        "descripcion": "Coordinación de traslados entre servicios"
-    },
+
+    # ========== CAPA 3: CLÍNICA (NIVEL SERVICIO + ROL PROFESIONAL) ==========
     RolEnum.MEDICO: {
         "nombre": "Médico",
-        "descripcion": "Ver pacientes, solicitar altas y derivaciones"
-    },
-    RolEnum.JEFE_SERVICIO: {
-        "nombre": "Jefe de Servicio",
-        "descripcion": "Gestión de su servicio específico"
+        "descripcion": "Reevaluación de pacientes, realizar/aceptar/rechazar derivaciones, iniciar búsqueda de cama, cancelar traslados, sugerir altas, completar traslados, omitir pausas de oxígeno y eliminar registros.",
+        "capa": "Clínica (Servicio)",
+        "alcance": "Solo pacientes con origen o destino en su servicio",
+        "solo_lectura": False,
     },
     RolEnum.ENFERMERA: {
-        "nombre": "Enfermera/o",
-        "descripcion": "Ver camas y actualizar estados básicos"
+        "nombre": "Enfermera/o o Matrón/a",
+        "descripcion": "Reevaluación de pacientes, aceptar traslados de cama, dar altas (estado 'Cama Alta'), registrar egresos (fallecido/derivación confirmada), completar traslados, omitir pausas de oxígeno y eliminar registros.",
+        "capa": "Clínica (Servicio)",
+        "alcance": "Solo pacientes con origen o destino en su servicio",
+        "solo_lectura": False,
+    },
+    RolEnum.TENS: {
+        "nombre": "TENS (Técnico de Enfermería de Nivel Superior)",
+        "descripcion": "Perfil operativo enfocado al movimiento físico del paciente. SOLO puede completar traslados. NO accede a documentos clínicos confidenciales (reevaluación/adjuntos).",
+        "capa": "Clínica (Servicio)",
+        "alcance": "Solo pacientes de su servicio",
+        "solo_lectura": False,
+    },
+
+    # ========== ROLES DE SERVICIO ESPECÍFICOS ==========
+    RolEnum.JEFE_SERVICIO: {
+        "nombre": "Jefe de Servicio",
+        "descripcion": "Gestión de su servicio específico. En hospitales periféricos (Llanquihue/Calbuco) puede usar Modo Manual y bloquear camas.",
+        "capa": "Clínica (Servicio)",
+        "alcance": "Su servicio específico",
+        "solo_lectura": False,
     },
     RolEnum.SUPERVISORA_ENFERMERIA: {
         "nombre": "Supervisora de Enfermería",
-        "descripcion": "Supervisión de enfermería"
+        "descripcion": "Supervisión de enfermería del servicio",
+        "capa": "Clínica (Servicio)",
+        "alcance": "Su servicio específico",
+        "solo_lectura": False,
     },
     RolEnum.URGENCIAS: {
         "nombre": "Urgencias",
-        "descripcion": "Crear pacientes de urgencia"
+        "descripcion": "Crear pacientes de urgencia y solicitar derivaciones. SIN acceso al dashboard de camas. Solo pacientes con origen en Urgencias.",
+        "capa": "Clínica (Servicio)",
+        "alcance": "Solo pacientes con origen en Urgencias",
+        "solo_lectura": False,
     },
     RolEnum.JEFE_URGENCIAS: {
         "nombre": "Jefe de Urgencias",
-        "descripcion": "Gestión completa de urgencias"
-    },
-    RolEnum.DERIVACIONES: {
-        "nombre": "Derivaciones",
-        "descripcion": "Gestionar derivaciones entrantes y salientes"
-    },
-    RolEnum.COORDINADOR_RED: {
-        "nombre": "Coordinador de Red",
-        "descripcion": "Coordinación entre hospitales de la red"
+        "descripcion": "Gestión completa de urgencias. SIN acceso al dashboard de camas.",
+        "capa": "Clínica (Servicio)",
+        "alcance": "Solo pacientes con origen en Urgencias",
+        "solo_lectura": False,
     },
     RolEnum.AMBULATORIO: {
         "nombre": "Ambulatorio",
-        "descripcion": "Crear pacientes ambulatorios"
+        "descripcion": "Crear pacientes ambulatorios, reevaluación y eliminación de registros. SIN acceso al dashboard de camas. Solo pacientes con origen en Ambulatorio.",
+        "capa": "Clínica (Servicio)",
+        "alcance": "Solo pacientes con origen en Ambulatorio",
+        "solo_lectura": False,
+    },
+
+    # ========== ROLES ESPECIALIZADOS ==========
+    RolEnum.DERIVACIONES: {
+        "nombre": "Derivaciones",
+        "descripcion": "Gestionar derivaciones entrantes y salientes",
+        "capa": "Especializado",
+        "alcance": "Derivaciones del hospital",
+        "solo_lectura": False,
     },
     RolEnum.ESTADISTICAS: {
         "nombre": "Estadísticas",
-        "descripcion": "Solo ver y exportar estadísticas"
+        "descripcion": "Solo ver y exportar estadísticas",
+        "capa": "Especializado",
+        "alcance": "Estadísticas del hospital/red",
+        "solo_lectura": True,
     },
     RolEnum.VISUALIZADOR: {
         "nombre": "Visualizador",
-        "descripcion": "Solo ver dashboard sin realizar acciones"
-    },
-    RolEnum.OPERADOR: {
-        "nombre": "Operador",
-        "descripcion": "Operaciones básicas del día a día"
+        "descripcion": "Solo ver dashboard sin realizar acciones",
+        "capa": "Especializado",
+        "alcance": "Visualización del hospital",
+        "solo_lectura": True,
     },
     RolEnum.LIMPIEZA: {
         "nombre": "Limpieza",
-        "descripcion": "Solo marcar limpieza de camas"
+        "descripcion": "Solo marcar limpieza de camas",
+        "capa": "Especializado",
+        "alcance": "Camas del hospital",
+        "solo_lectura": False,
+    },
+
+    # ========== ALIASES (para compatibilidad) ==========
+    RolEnum.SUPER_ADMIN: {
+        "nombre": "Super Administrador (Alias)",
+        "descripcion": "Alias de Programador",
+        "capa": "Administración y Red (Global)",
+        "alcance": "Totalidad del sistema",
+        "solo_lectura": False,
+    },
+    RolEnum.ADMIN: {
+        "nombre": "Administrador (Alias)",
+        "descripcion": "Alias de Gestor de Camas",
+        "capa": "Gestión Local (Hospitalario)",
+        "alcance": "Hospital",
+        "solo_lectura": False,
+    },
+    RolEnum.COORDINADOR_RED: {
+        "nombre": "Coordinador de Red (Alias)",
+        "descripcion": "Alias de Directivo de Red",
+        "capa": "Administración y Red (Global)",
+        "alcance": "Todos los hospitales",
+        "solo_lectura": True,
     },
 }
