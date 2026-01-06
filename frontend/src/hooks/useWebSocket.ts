@@ -189,10 +189,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       return;
     }
 
+    // Verificar que haya un token válido antes de intentar conectar
+    const token = tokenStorage.getAccessToken();
+    if (!token) {
+      console.warn('[WS] No hay token de acceso, no se puede conectar');
+      // No reintentar sin token
+      reconnectAttemptsRef.current = maxReconnectAttempts;
+      return;
+    }
+
     try {
       const wsUrl = getWebSocketUrl(hospitalId);
       console.log('[WS] Conectando a:', wsUrl);
-      
+
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -208,7 +217,16 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         setIsConnected(false);
         onDisconnectRef.current?.();
 
-        // Reintentar conexión
+        // No reintentar si el código indica error de autenticación (1008)
+        // o si no hay token disponible
+        const currentToken = tokenStorage.getAccessToken();
+        if (event.code === 1008 || !currentToken) {
+          console.warn('[WS] Error de autenticación o sin token, no se reintentará');
+          reconnectAttemptsRef.current = maxReconnectAttempts;
+          return;
+        }
+
+        // Reintentar conexión si no se alcanzó el máximo
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current++;
           console.log(`[WS] Reintentando conexión (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
@@ -226,14 +244,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         try {
           const data = JSON.parse(event.data) as WebSocketEvent;
           console.log('[WS] Mensaje recibido:', data.tipo);
-          
+
           setLastMessage(data);
-          
+
           // Reproducir sonido si está habilitado y el mensaje lo requiere
           if (enableSoundRef.current && data.play_sound === true) {
             playNotificationSound();
           }
-          
+
           onMessageRef.current?.(data);
         } catch (err) {
           console.error('[WS] Error parsing mensaje:', err);
