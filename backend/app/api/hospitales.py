@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from app.core.database import get_session
 from app.core.auth_dependencies import get_current_user, require_not_readonly
 from app.core.rbac_service import rbac_service
-from app.models.usuario import Usuario, PermisoEnum
+from app.models.usuario import Usuario, PermisoEnum, RolEnum
 from app.models.hospital import Hospital
 from app.models.servicio import Servicio
 from app.models.sala import Sala
@@ -28,6 +28,16 @@ from app.utils.helpers import calcular_estadisticas_camas, crear_paciente_respon
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+def puede_acceder_hospital_por_codigo(user: Usuario, hospital: Hospital) -> bool:
+    """Helper para verificar acceso a hospital comparando por código o UUID."""
+    if user.rol in [RolEnum.PROGRAMADOR, RolEnum.DIRECTIVO_RED]:
+        return True
+    if not user.hospital_id:
+        return True
+    # Comparar por UUID o por código
+    return user.hospital_id == hospital.id or user.hospital_id == hospital.codigo
 
 
 @router.get("", response_model=List[HospitalResponse])
@@ -100,19 +110,19 @@ def obtener_hospital(
     session: Session = Depends(get_session)
 ):
     """Obtiene un hospital específico. Requiere acceso al hospital."""
-    # Verificar acceso al hospital
-    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+    repo = HospitalRepository(session)
+    hospital = repo.obtener_por_id(hospital_id)
+
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital no encontrado")
+
+    # Verificar acceso (soporta comparación por código o UUID)
+    if not puede_acceder_hospital_por_codigo(current_user, hospital):
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para acceder a este hospital"
         )
 
-    repo = HospitalRepository(session)
-    hospital = repo.obtener_por_id(hospital_id)
-    
-    if not hospital:
-        raise HTTPException(status_code=404, detail="Hospital no encontrado")
-    
     camas = repo.obtener_camas_hospital(hospital.id)
     stats = calcular_estadisticas_camas(camas)
     cola = gestor_colas_global.obtener_cola(hospital.id)
@@ -137,14 +147,18 @@ def obtener_servicios(
     session: Session = Depends(get_session)
 ):
     """Obtiene los servicios de un hospital. Filtrado por permisos del usuario."""
-    # Verificar acceso al hospital
-    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+    repo = HospitalRepository(session)
+    hospital = repo.obtener_por_id(hospital_id)
+
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital no encontrado")
+
+    # Verificar acceso (soporta comparación por código o UUID)
+    if not puede_acceder_hospital_por_codigo(current_user, hospital):
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para acceder a este hospital"
         )
-
-    repo = HospitalRepository(session)
     cama_repo = CamaRepository(session)
     
     servicios = repo.obtener_servicios_hospital(hospital_id)
@@ -178,14 +192,19 @@ def obtener_camas_hospital(
     session: Session = Depends(get_session)
 ):
     """Obtiene todas las camas de un hospital. Filtrado por permisos del usuario."""
-    # Verificar acceso al hospital
-    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+    repo = HospitalRepository(session)
+    hospital = repo.obtener_por_id(hospital_id)
+
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital no encontrado")
+
+    # Verificar acceso (soporta comparación por código o UUID)
+    if not puede_acceder_hospital_por_codigo(current_user, hospital):
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para acceder a este hospital"
         )
 
-    repo = HospitalRepository(session)
     camas = repo.obtener_camas_hospital(hospital_id)
     
     resultado = []
@@ -493,18 +512,18 @@ def obtener_derivados_hospital(
     Estos son pacientes que han sido presentados desde otros hospitales
     y están esperando ser aceptados o rechazados.
     """
-    # Verificar acceso al hospital
-    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
-        raise HTTPException(
-            status_code=403,
-            detail="No tienes permisos para acceder a este hospital"
-        )
-
     repo = HospitalRepository(session)
     hospital = repo.obtener_por_id(hospital_id)
 
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital no encontrado")
+
+    # Verificar acceso (soporta comparación por código o UUID)
+    if not puede_acceder_hospital_por_codigo(current_user, hospital):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para acceder a este hospital"
+        )
 
     # Buscar pacientes con derivación pendiente hacia este hospital
     query = select(Paciente).where(
@@ -683,13 +702,18 @@ async def actualizar_telefonos_hospital(
     Actualiza los teléfonos de urgencias y ambulatorio de un hospital.
     Requiere permisos de escritura.
     """
-    # Verificar acceso al hospital
-    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+    repo = HospitalRepository(session)
+    hospital = repo.obtener_por_id(hospital_id)
+
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital no encontrado")
+
+    # Verificar acceso (soporta comparación por código o UUID)
+    if not puede_acceder_hospital_por_codigo(current_user, hospital):
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para modificar este hospital"
         )
-    repo = HospitalRepository(session)
     hospital = repo.obtener_por_id(hospital_id)
     
     if not hospital:
@@ -772,12 +796,19 @@ async def actualizar_telefono_servicio(
     Actualiza el teléfono de contacto de un servicio.
     Requiere permisos de escritura.
     """
-    # Verificar acceso al hospital
-    if not rbac_service.puede_acceder_hospital(current_user, hospital_id):
+    repo = HospitalRepository(session)
+    hospital = repo.obtener_por_id(hospital_id)
+
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital no encontrado")
+
+    # Verificar acceso (soporta comparación por código o UUID)
+    if not puede_acceder_hospital_por_codigo(current_user, hospital):
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para modificar este hospital"
         )
+
     servicio = session.get(Servicio, servicio_id)
     
     if not servicio:
