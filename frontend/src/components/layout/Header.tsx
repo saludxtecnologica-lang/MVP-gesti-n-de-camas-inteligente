@@ -1,16 +1,21 @@
-import React from 'react';
-import { 
-  BedDouble, 
-  List, 
-  Send, 
-  BarChart3, 
-  Settings, 
+import React, { useState } from 'react';
+import {
+  BedDouble,
+  List,
+  Send,
+  BarChart3,
+  Settings,
   UserPlus,
   Wifi,
-  WifiOff
+  WifiOff,
+  User,
+  LogOut,
+  ChevronDown
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useModal } from '../../context/ModalContext';
+import { useAuth } from '../../context/AuthContext';
+import { ROL_NOMBRES, ROL_COLORES } from '../../types/auth';
 
 type Vista = 'dashboard' | 'listaEspera' | 'derivados' | 'estadisticas';
 
@@ -20,9 +25,9 @@ interface HeaderProps {
 }
 
 export function Header({ vistaActual, onCambiarVista }: HeaderProps) {
-  const { 
-    hospitales, 
-    hospitalSeleccionado, 
+  const {
+    hospitales,
+    hospitalSeleccionado,
     setHospitalSeleccionado,
     configuracion,
     wsConnected,
@@ -30,6 +35,8 @@ export function Header({ vistaActual, onCambiarVista }: HeaderProps) {
     derivados
   } = useApp();
   const { openModal } = useModal();
+  const { user, logout } = useAuth();
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const navItems: { key: Vista; label: string; icon: React.ElementType; badge?: number }[] = [
     { key: 'dashboard', label: 'Camas', icon: BedDouble },
@@ -127,6 +134,67 @@ export function Header({ vistaActual, onCambiarVista }: HeaderProps) {
             >
               <Settings className="w-5 h-5" />
             </button>
+
+            {/* Usuario - Dropdown */}
+            {user && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-sm font-medium">
+                    {user.nombre_completo.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex flex-col items-start">
+                    <span className="text-sm font-medium text-gray-700">{user.nombre_completo}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded ${ROL_COLORES[user.rol]} text-white`}>
+                      {ROL_NOMBRES[user.rol]}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                </button>
+
+                {/* Dropdown Menu */}
+                {showUserMenu && (
+                  <>
+                    {/* Backdrop para cerrar al hacer click fuera */}
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowUserMenu(false)}
+                    />
+
+                    {/* Menú */}
+                    <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-20">
+                      {/* Info del usuario */}
+                      <div className="px-4 py-3 border-b border-gray-100">
+                        <p className="text-sm font-medium text-gray-900">{user.nombre_completo}</p>
+                        <p className="text-xs text-gray-500">{user.email}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Hospital: {user.hospital_id || 'Todos'}
+                        </p>
+                        {user.servicio_id && (
+                          <p className="text-xs text-gray-500">
+                            Servicio: {user.servicio_id}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Opciones */}
+                      <button
+                        onClick={async () => {
+                          setShowUserMenu(false);
+                          await logout();
+                        }}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Cerrar Sesión
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
