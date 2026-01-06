@@ -103,15 +103,15 @@ const BOTONES_MANUAL: Record<string, BotonConfig[]> = {
 };
 
 // ============================================
-// ESTILOS DE BOTONES
+// ESTILOS DE BOTONES - DISEÑO MODERNO
 // ============================================
 
 const estilosBotones: Record<string, string> = {
-  primary: 'bg-blue-600 hover:bg-blue-700 text-white',
-  secondary: 'bg-gray-200 hover:bg-gray-300 text-gray-800',
-  success: 'bg-green-600 hover:bg-green-700 text-white',
-  danger: 'bg-red-600 hover:bg-red-700 text-white',
-  warning: 'bg-yellow-500 hover:bg-yellow-600 text-black'
+  primary: 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-700',
+  secondary: 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300',
+  success: 'bg-green-600 hover:bg-green-700 text-white border border-green-700',
+  danger: 'bg-red-600 hover:bg-red-700 text-white border border-red-700',
+  warning: 'bg-yellow-500 hover:bg-yellow-600 text-gray-900 border border-yellow-600'
 };
 
 // ============================================
@@ -161,11 +161,11 @@ export function CamaCard({ cama }: CamaCardProps) {
   // ============================================
   const getEstadoColor = () => {
     if (cama.estado === EstadoCamaEnum.FALLECIDO) {
-      return 'bg-gray-700 text-white border-gray-800';
+      return 'bg-gray-800 text-gray-100 border-gray-900';
     }
     return COLORES_ESTADO[cama.estado] || COLORES_ESTADO.libre;
   };
-  
+
   const estadoColor = getEstadoColor();
 
   // Obtener paciente a mostrar
@@ -406,16 +406,26 @@ export function CamaCard({ cama }: CamaCardProps) {
 
   return (
     <>
-      <div 
-        className={`rounded-lg border-2 p-3 ${estadoColor} transition-all hover:shadow-md relative ${pacienteMostrar ? 'cursor-pointer' : ''}`}
+      <div
+        className={`rounded-2xl border-2 p-4 ${estadoColor}
+          transition-all duration-300 ease-in-out
+          hover:shadow-2xl hover:scale-[1.02] hover:-translate-y-1
+          relative backdrop-blur-sm
+          min-h-[280px] max-h-[280px] flex flex-col
+          ${pacienteMostrar ? 'cursor-pointer' : ''}
+          animate-fadeIn`}
         onClick={handleClickTarjeta}
+        style={{
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+          animation: 'cardEntrance 0.3s ease-out'
+        }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-lg">{cama.identificador}</span>
+        <div className="flex items-center justify-between mb-3 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="font-bold text-xl tracking-tight">{cama.identificador}</span>
             {cama.servicio_nombre && (
-              <span className="text-xs opacity-70">{cama.servicio_nombre}</span>
+              <span className="text-xs opacity-60 font-medium">{cama.servicio_nombre}</span>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -423,22 +433,24 @@ export function CamaCard({ cama }: CamaCardProps) {
             {/* ÍCONO DE CRUZ PARA ESTADO FALLECIDO */}
             {/* ============================================ */}
             {esFallecido && (
-              <div className="p-1 bg-gray-600 rounded-full" title="Paciente fallecido">
+              <div className="p-1.5 bg-gray-700 rounded-full shadow-md transition-all duration-200 hover:scale-110" title="Paciente fallecido">
                 <Cross className="w-4 h-4 text-white" />
               </div>
             )}
-            
+
             <Badge variant={cama.estado === 'libre' ? 'success' : esFallecido ? 'default' : 'default'}>
               {formatEstado(cama.estado)}
             </Badge>
-            
+
             {/* ============================================ */}
             {/* BOTÓN DE REEVALUAR - No mostrar en fallecido */}
             {/* ============================================ */}
             {mostrarBotonReevaluar && (
               <button
                 onClick={handleClickReevaluar}
-                className="p-1.5 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors border-2 border-blue-300 shadow-sm"
+                className="p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600
+                  transition-all duration-200 border border-blue-200 shadow-sm
+                  hover:shadow-md hover:scale-110 active:scale-95"
                 title="Reevaluar paciente"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -449,26 +461,26 @@ export function CamaCard({ cama }: CamaCardProps) {
 
         {/* Badges especiales */}
         {(tieneCasosEspeciales || esDerivado || esperandoOxigeno || esFallecido) && (
-          <div className="flex flex-wrap gap-1 mb-2">
+          <div className="flex flex-wrap gap-2 mb-3 flex-shrink-0">
             {/* ============================================ */}
             {/* BADGE DE FALLECIDO */}
             {/* ============================================ */}
             {esFallecido && (
-              <Badge variant="default" className="bg-gray-600 text-white">
+              <Badge variant="default" className="bg-gray-700 text-white shadow-sm">
                 <Cross className="w-3 h-3 mr-1" />
                 Fallecido
               </Badge>
             )}
-            
+
             {/* Íconos de casos especiales */}
             {iconosCasosEspeciales.length > 0 && !esFallecido && (
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-100 rounded-full border border-amber-300">
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 rounded-full border border-amber-200 shadow-sm">
                 {iconosCasosEspeciales.map((config: { icono: React.ElementType; color: string }, idx: number) => {
                   const IconComponent = config.icono;
                   return (
-                    <IconComponent 
-                      key={idx} 
-                      className={`w-4 h-4 ${config.color}`} 
+                    <IconComponent
+                      key={idx}
+                      className={`w-4 h-4 ${config.color}`}
                       title={casosEspeciales[idx]}
                     />
                   );
@@ -476,19 +488,19 @@ export function CamaCard({ cama }: CamaCardProps) {
               </div>
             )}
             {tieneCasosEspeciales && iconosCasosEspeciales.length === 0 && !esFallecido && (
-              <Badge variant="warning">
+              <Badge variant="warning" className="shadow-sm">
                 <AlertTriangle className="w-3 h-3 mr-1" />
                 Caso Especial
               </Badge>
             )}
             {esDerivado && !esFallecido && (
-              <Badge variant="purple">
+              <Badge variant="purple" className="shadow-sm">
                 <Send className="w-3 h-3 mr-1" />
                 Derivado
               </Badge>
             )}
             {esperandoOxigeno && !esFallecido && (
-              <Badge variant="info">
+              <Badge variant="info" className="shadow-sm">
                 <Wind className="w-3 h-3 mr-1" />
                 Evaluando O₂
               </Badge>
@@ -498,23 +510,25 @@ export function CamaCard({ cama }: CamaCardProps) {
 
         {/* Info paciente - Clickeable para abrir modal */}
         {pacienteMostrar && (
-          <div className={`text-sm space-y-1 mb-3 ${esFallecido ? 'text-gray-300' : ''}`}>
-            <p className="font-medium truncate">{pacienteMostrar.nombre}</p>
-            <p className="text-xs opacity-80">RUN: {pacienteMostrar.run}</p>
-            <div className="flex gap-2 text-xs">
-              <span>{pacienteMostrar.edad} años</span>
-              <span>•</span>
-              <span>{formatComplejidad(pacienteMostrar.complejidad_requerida || pacienteMostrar.complejidad || 'ninguna')}</span>
+          <div className={`text-sm space-y-2 mb-3 flex-grow overflow-hidden ${esFallecido ? 'text-gray-200' : ''}`}>
+            <p className="font-semibold text-base truncate tracking-tight">{pacienteMostrar.nombre}</p>
+            <p className="text-xs opacity-75 font-mono">RUN: {pacienteMostrar.run}</p>
+            <div className="flex flex-wrap gap-2 text-xs font-medium">
+              <span className="px-2 py-0.5 bg-white bg-opacity-20 rounded-full">
+                {pacienteMostrar.edad} años
+              </span>
+              <span className="px-2 py-0.5 bg-white bg-opacity-20 rounded-full">
+                {formatComplejidad(pacienteMostrar.complejidad_requerida || pacienteMostrar.complejidad || 'ninguna')}
+              </span>
               {pacienteMostrar.tipo_aislamiento && pacienteMostrar.tipo_aislamiento !== 'ninguno' && !esFallecido && (
-                <>
-                  <span>•</span>
-                  <span className="text-red-600">{formatTipoAislamiento(pacienteMostrar.tipo_aislamiento)}</span>
-                </>
+                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full border border-red-300">
+                  {formatTipoAislamiento(pacienteMostrar.tipo_aislamiento)}
+                </span>
               )}
             </div>
             {/* Mostrar causa de fallecimiento si está disponible */}
             {esFallecido && pacienteMostrar.causa_fallecimiento && (
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-300 mt-2 italic px-2 py-1 bg-gray-700 bg-opacity-50 rounded">
                 Causa: {pacienteMostrar.causa_fallecimiento}
               </p>
             )}
@@ -523,38 +537,42 @@ export function CamaCard({ cama }: CamaCardProps) {
 
         {/* Mensaje estado - Especial para evaluación de oxígeno */}
         {esperandoOxigeno && !esFallecido ? (
-          <div className="text-xs italic mb-2 p-2 bg-cyan-100 rounded border border-cyan-300 text-cyan-800">
-            <div className="flex items-center gap-1">
-              <Wind className="w-3 h-3" />
-              <span className="font-medium">Evaluando descalaje de oxígeno</span>
+          <div className="text-xs mb-2 p-3 bg-cyan-50 rounded-xl border border-cyan-200 text-cyan-800 shadow-sm flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Wind className="w-4 h-4" />
+              <span className="font-semibold">Evaluando descalaje de oxígeno</span>
             </div>
-            <p className="mt-1 text-cyan-700">
+            <p className="mt-1.5 text-cyan-700 text-xs">
               Esperando confirmación antes de buscar nueva cama
             </p>
           </div>
         ) : esFallecido ? (
-          <div className="text-xs italic mb-2 p-2 bg-gray-600 rounded border border-gray-500 text-gray-200">
-            <div className="flex items-center gap-1">
-              <Cross className="w-3 h-3" />
-              <span className="font-medium">Cuidados postmortem en curso</span>
+          <div className="text-xs mb-2 p-3 bg-gray-700 bg-opacity-50 rounded-xl border border-gray-600 text-gray-200 shadow-sm flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Cross className="w-4 h-4" />
+              <span className="font-semibold">Cuidados postmortem en curso</span>
             </div>
           </div>
         ) : cama.mensaje_estado ? (
-          <p className="text-xs italic mb-2 opacity-80">{cama.mensaje_estado}</p>
+          <p className="text-xs italic mb-2 opacity-75 px-2 py-1 bg-white bg-opacity-10 rounded flex-shrink-0">
+            {cama.mensaje_estado}
+          </p>
         ) : null}
 
         {/* Motivo bloqueo */}
         {cama.estado === 'bloqueada' && cama.bloqueada_motivo && (
-          <p className="text-xs text-red-600 mb-2">Motivo: {cama.bloqueada_motivo}</p>
+          <p className="text-xs text-red-700 mb-2 px-2 py-1 bg-red-50 rounded border border-red-200 flex-shrink-0">
+            <span className="font-semibold">Motivo:</span> {cama.bloqueada_motivo}
+          </p>
         )}
 
         {/* Botones */}
         {botones.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
+          <div className="flex flex-wrap gap-2 mt-auto flex-shrink-0">
             {botones.map((config) => {
               const Icon = config.icono;
               const isLoading = config.accion === 'buscarCama' && verificandoDisponibilidad;
-              
+
               return (
                 <button
                   key={config.key}
@@ -563,12 +581,15 @@ export function CamaCard({ cama }: CamaCardProps) {
                     ejecutarAccion(config);
                   }}
                   disabled={isLoading}
-                  className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${estilosBotones[config.tipo]} ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg
+                    transition-all duration-200 shadow-sm hover:shadow-md
+                    active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+                    ${estilosBotones[config.tipo]}`}
                 >
                   {isLoading ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <Icon className="w-3 h-3" />
+                    <Icon className="w-3.5 h-3.5" />
                   )}
                   {isLoading ? 'Verificando...' : config.texto}
                 </button>
@@ -584,9 +605,11 @@ export function CamaCard({ cama }: CamaCardProps) {
               e.stopPropagation();
               actions.handleOmitirPausaOxigeno(paciente.id);
             }}
-            className="mt-2 w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs rounded bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+            className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium
+              rounded-lg bg-teal-600 hover:bg-teal-700 text-white
+              transition-all duration-200 shadow-sm hover:shadow-md active:scale-95 flex-shrink-0"
           >
-            <Clock className="w-3 h-3" />
+            <Clock className="w-4 h-4" />
             Omitir espera O₂ y buscar cama
           </button>
         )}
