@@ -54,45 +54,56 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const initAuth = async () => {
       setIsLoading(true);
-      
+
       try {
         // Recuperar tokens del storage
         const storedTokens = tokenStorage.getTokens();
         const storedUser = tokenStorage.getUser();
-        
+
         if (storedTokens && storedUser) {
           setTokens(storedTokens);
           setUser(storedUser);
-          
+
           // Verificar que el token siga siendo válido
           try {
             const freshUser = await authApi.getMe();
             setUser(freshUser);
             tokenStorage.setUser(freshUser);
-          } catch {
+          } catch (err) {
             // Token inválido, limpiar
+            console.warn('Sesión expirada o inválida, limpiando...', err);
             tokenStorage.clearAll();
             setTokens(null);
             setUser(null);
+            setError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
           }
         }
       } catch (err) {
         console.error('Error initializing auth:', err);
+        // Limpiar estado en caso de error
+        tokenStorage.clearAll();
+        setTokens(null);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
     };
-    
+
     initAuth();
-    
+
     // Escuchar eventos de logout forzado
-    const handleLogout = () => {
+    const handleForcedLogout = () => {
+      console.log('Logout forzado detectado');
       setUser(null);
       setTokens(null);
+      setError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+
+      // Asegurarse de que el storage esté limpio
+      tokenStorage.clearAll();
     };
-    
-    window.addEventListener('auth:logout', handleLogout);
-    return () => window.removeEventListener('auth:logout', handleLogout);
+
+    window.addEventListener('auth:logout', handleForcedLogout);
+    return () => window.removeEventListener('auth:logout', handleForcedLogout);
   }, []);
 
   // ============================================

@@ -110,30 +110,40 @@ export async function authFetch<T>(
   
   // Manejar errores de autenticación
   if (response.status === 401) {
-    // Intentar refrescar token
-    const refreshed = await refreshAccessToken();
-    if (refreshed) {
-      // Reintentar con nuevo token
-      const newToken = tokenStorage.getAccessToken();
-      (headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
-      
-      const retryResponse = await fetch(url, {
-        ...fetchOptions,
-        headers,
-      });
-      
-      if (!retryResponse.ok) {
-        const error = await retryResponse.json().catch(() => ({}));
-        throw new Error(error.detail || 'Error de autenticación');
+    // Solo intentar refrescar si no es el endpoint de refresh o logout
+    const isRefreshEndpoint = endpoint.includes('/auth/refresh');
+    const isLogoutEndpoint = endpoint.includes('/auth/logout');
+
+    if (!isRefreshEndpoint && !isLogoutEndpoint) {
+      // Intentar refrescar token una sola vez
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        // Reintentar con nuevo token
+        const newToken = tokenStorage.getAccessToken();
+        if (newToken) {
+          (headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
+
+          const retryResponse = await fetch(url, {
+            ...fetchOptions,
+            headers,
+          });
+
+          if (!retryResponse.ok) {
+            // Si falla el reintento, forzar logout
+            tokenStorage.clearAll();
+            window.dispatchEvent(new CustomEvent('auth:logout'));
+            throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
+          }
+
+          return retryResponse.json();
+        }
       }
-      
-      return retryResponse.json();
-    } else {
-      // No se pudo refrescar, limpiar y redirigir
-      tokenStorage.clearAll();
-      window.dispatchEvent(new CustomEvent('auth:logout'));
-      throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
     }
+
+    // No se pudo refrescar o es un endpoint de auth, limpiar y forzar logout
+    tokenStorage.clearAll();
+    window.dispatchEvent(new CustomEvent('auth:logout'));
+    throw new Error('Sesión expirada. Por favor, inicia sesión nuevamente.');
   }
   
   if (!response.ok) {
@@ -150,42 +160,63 @@ export async function authFetch<T>(
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
+let lastRefreshAttempt = 0;
+const REFRESH_COOLDOWN = 5000; // 5 segundos entre intentos
 
 async function refreshAccessToken(): Promise<boolean> {
+  const now = Date.now();
+
   // Evitar múltiples refreshes simultáneos
   if (isRefreshing && refreshPromise) {
     return refreshPromise;
   }
-  
-  const refreshToken = tokenStorage.getRefreshToken();
-  if (!refreshToken) {
+
+  // Evitar intentos demasiado frecuentes
+  if (now - lastRefreshAttempt < REFRESH_COOLDOWN) {
+    console.warn('Refresh token cooldown activo, esperando...');
     return false;
   }
-  
+
+  const refreshToken = tokenStorage.getRefreshToken();
+  if (!refreshToken) {
+    console.warn('No hay refresh token disponible');
+    return false;
+  }
+
+  lastRefreshAttempt = now;
   isRefreshing = true;
+
   refreshPromise = (async () => {
     try {
+      console.log('Intentando refrescar access token...');
       const response = await fetch(`${getApiBase()}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refreshToken }),
       });
-      
+
       if (!response.ok) {
+        console.error('Refresh token falló:', response.status, response.statusText);
+        // Limpiar tokens inválidos
+        tokenStorage.clearAll();
         return false;
       }
-      
+
       const tokens: AuthTokens = await response.json();
       tokenStorage.setTokens(tokens);
+      console.log('Access token refrescado exitosamente');
       return true;
-    } catch {
+    } catch (error) {
+      console.error('Error al refrescar token:', error);
+      // Limpiar tokens en caso de error
+      tokenStorage.clearAll();
       return false;
     } finally {
       isRefreshing = false;
       refreshPromise = null;
     }
   })();
-  
+
   return refreshPromise;
 }
 
