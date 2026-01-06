@@ -29,6 +29,7 @@ from app.models.sala import Sala
 from app.models.cama import Cama
 from app.models.configuracion import ConfiguracionSistema
 from app.models.enums import TipoServicioEnum, EstadoCamaEnum
+from app.utils.seed_users import inicializar_usuarios
 
 
 def inicializar_datos(session: Session) -> None:
@@ -61,6 +62,8 @@ def inicializar_datos(session: Session) -> None:
         codigo="CA",
         es_central=False
     )
+    
+    inicializar_usuarios(session)
     
     session.add(hospital_pm)
     session.add(hospital_ll)

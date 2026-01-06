@@ -56,6 +56,35 @@ class Settings(BaseSettings):
     # ============================================
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+
+    # ============================================
+    # JWT
+    # ============================================
+    JWT_SECRET_KEY: str = "tu-clave-secreta-muy-larga-y-segura-cambiar-en-produccion-12345"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutos
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7     # 7 días
+    
+    # ============================================
+    # SEGURIDAD
+    # ============================================
+    PASSWORD_MIN_LENGTH: int = 8
+    PASSWORD_REQUIRE_UPPERCASE: bool = True
+    PASSWORD_REQUIRE_LOWERCASE: bool = True
+    PASSWORD_REQUIRE_DIGIT: bool = True
+    PASSWORD_REQUIRE_SPECIAL: bool = False
+    
+    # Intentos de login
+    MAX_LOGIN_ATTEMPTS: int = 5
+    LOGIN_LOCKOUT_MINUTES: int = 15
+    
+    # ============================================
+    # COOKIES (opcional, para httpOnly cookies)
+    # ============================================
+    COOKIE_SECURE: bool = False  # True en producción con HTTPS
+    COOKIE_HTTPONLY: bool = True
+    COOKIE_SAMESITE: str = "lax"  # "strict", "lax", o "none"
+    COOKIE_DOMAIN: str = ""  # Vacío para localhost
     
     class Config:
         env_file = ".env"

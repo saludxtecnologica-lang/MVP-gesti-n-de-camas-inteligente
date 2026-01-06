@@ -20,6 +20,7 @@ from app.models.sala import Sala
 from app.models.cama import Cama
 from app.models.paciente import Paciente
 from app.models.configuracion import ConfiguracionSistema, LogActividad
+from app.models.usuario import Usuario, RefreshToken, RolEnum, PermisoEnum
 
 __all__ = [
     # Enums

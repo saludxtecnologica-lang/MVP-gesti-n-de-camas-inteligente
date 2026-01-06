@@ -4,6 +4,8 @@ Router principal que agrupa todos los sub-routers.
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from urllib.parse import unquote
+from app.api.auth_router import router as auth_router
+
 import os
 
 from app.api import hospitales
@@ -19,6 +21,7 @@ from app.api import websocket
 from app.config import settings
 
 api_router = APIRouter()
+api_router.include_router(auth_router)
 
 # ============================================
 # ENDPOINT PARA DOCUMENTOS

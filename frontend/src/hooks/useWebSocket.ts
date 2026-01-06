@@ -1,16 +1,55 @@
+/**
+ * Hook de WebSocket para actualizaciones en tiempo real
+ */
+
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { WebSocketEvent } from '../types';
-import { getWebSocketUrl } from '../services/api';
+import { tokenStorage } from '../services/authApi';
+
+// ============================================
+// TIPOS
+// ============================================
+
+export interface WebSocketEvent {
+  tipo: string;
+  datos?: Record<string, unknown>;
+  timestamp?: string;
+  hospital_id?: string;
+  play_sound?: boolean;
+  [key: string]: unknown;
+}
+
+export interface UseWebSocketOptions {
+  onMessage?: (event: WebSocketEvent) => void;
+  onConnect?: () => void;
+  onDisconnect?: () => void;
+  reconnectInterval?: number;
+  maxReconnectAttempts?: number;
+  enableSound?: boolean;
+  hospitalId?: string;
+}
+
+export interface UseWebSocketReturn {
+  isConnected: boolean;
+  lastMessage: WebSocketEvent | null;
+  sendMessage: (message: unknown) => void;
+  reconnect: () => void;
+  disconnect: () => void;
+  testSound: () => void;
+}
+
+// ============================================
+// SONIDO DE NOTIFICACIÓN
+// ============================================
 
 const NOTIFICATION_SOUND_URL = '/notification.mp3';
-
 let notificationAudio: HTMLAudioElement | null = null;
 let audioLoadFailed = false;
 
 function playBeepSound(): void {
   try {
-    const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
-    const audioContext = new AudioContext();
+    const AudioContextClass = window.AudioContext || 
+      (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
+    const audioContext = new AudioContextClass();
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
     
@@ -67,33 +106,64 @@ function playNotificationSound(): void {
   }
 }
 
-interface UseWebSocketOptions {
-  onMessage?: (event: WebSocketEvent) => void;
-  onConnect?: () => void;
-  onDisconnect?: () => void;
-  reconnectInterval?: number;
-  maxReconnectAttempts?: number;
-  enableSound?: boolean;
+// ============================================
+// HELPER PARA URL
+// ============================================
+
+function getWebSocketUrl(hospitalId?: string): string {
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  const wsProtocol = baseUrl.startsWith('https') ? 'wss' : 'ws';
+  const wsBaseUrl = baseUrl.replace(/^https?/, wsProtocol);
+  
+  let url = `${wsBaseUrl}/api/ws`;
+  
+  // Añadir token como query param si existe
+  const token = tokenStorage.getAccessToken();
+  const params = new URLSearchParams();
+  
+  if (token) {
+    params.append('token', token);
+  }
+  
+  if (hospitalId) {
+    params.append('hospital_id', hospitalId);
+  }
+  
+  const queryString = params.toString();
+  if (queryString) {
+    url += `?${queryString}`;
+  }
+  
+  return url;
 }
 
-export function useWebSocket({
-  onMessage,
-  onConnect,
-  onDisconnect,
-  reconnectInterval = 3000,
-  maxReconnectAttempts = 10,
-  enableSound = true
-}: UseWebSocketOptions = {}) {
+// ============================================
+// HOOK PRINCIPAL
+// ============================================
+
+export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
+  const {
+    onMessage,
+    onConnect,
+    onDisconnect,
+    reconnectInterval = 3000,
+    maxReconnectAttempts = 10,
+    enableSound = true,
+    hospitalId,
+  } = options;
+
   const [isConnected, setIsConnected] = useState(false);
+  const [lastMessage, setLastMessage] = useState<WebSocketEvent | null>(null);
+  
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const enableSoundRef = useRef(enableSound);
   
-  // Refs para los callbacks para evitar re-conexiones
+  // Refs para callbacks para evitar re-conexiones innecesarias
   const onMessageRef = useRef(onMessage);
   const onConnectRef = useRef(onConnect);
   const onDisconnectRef = useRef(onDisconnect);
+  const enableSoundRef = useRef(enableSound);
 
   // Actualizar refs cuando cambien los callbacks
   useEffect(() => {
@@ -112,6 +182,7 @@ export function useWebSocket({
     enableSoundRef.current = enableSound;
   }, [enableSound]);
 
+  // Función de conexión
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       console.log('[WS] Ya conectado, ignorando');
@@ -119,7 +190,7 @@ export function useWebSocket({
     }
 
     try {
-      const wsUrl = getWebSocketUrl();
+      const wsUrl = getWebSocketUrl(hospitalId);
       console.log('[WS] Conectando a:', wsUrl);
       
       const ws = new WebSocket(wsUrl);
@@ -156,6 +227,9 @@ export function useWebSocket({
           const data = JSON.parse(event.data) as WebSocketEvent;
           console.log('[WS] Mensaje recibido:', data.tipo);
           
+          setLastMessage(data);
+          
+          // Reproducir sonido si está habilitado y el mensaje lo requiere
           if (enableSoundRef.current && data.play_sound === true) {
             playNotificationSound();
           }
@@ -168,25 +242,45 @@ export function useWebSocket({
     } catch (err) {
       console.error('[WS] Error conectando:', err);
     }
-  }, [reconnectInterval, maxReconnectAttempts]);
+  }, [hospitalId, reconnectInterval, maxReconnectAttempts]);
 
+  // Función de desconexión
   const disconnect = useCallback(() => {
     console.log('[WS] Desconectando...');
+    
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-    reconnectAttemptsRef.current = maxReconnectAttempts; // Evitar reconexión
-    wsRef.current?.close();
-    wsRef.current = null;
+    
+    // Evitar reconexión automática
+    reconnectAttemptsRef.current = maxReconnectAttempts;
+    
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    
+    setIsConnected(false);
   }, [maxReconnectAttempts]);
 
+  // Función de reconexión manual
+  const reconnect = useCallback(() => {
+    reconnectAttemptsRef.current = 0;
+    disconnect();
+    setTimeout(connect, 100);
+  }, [connect, disconnect]);
+
+  // Función para enviar mensajes
   const sendMessage = useCallback((message: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
+    } else {
+      console.warn('[WS] No conectado, mensaje no enviado');
     }
   }, []);
 
+  // Función para probar sonido
   const testSound = useCallback(() => {
     playNotificationSound();
   }, []);
@@ -197,10 +291,28 @@ export function useWebSocket({
     return () => disconnect();
   }, [connect, disconnect]);
 
+  // Escuchar evento de logout para desconectar
+  useEffect(() => {
+    const handleLogout = () => {
+      disconnect();
+    };
+
+    window.addEventListener('auth:logout', handleLogout);
+    return () => window.removeEventListener('auth:logout', handleLogout);
+  }, [disconnect]);
+
   return {
     isConnected,
+    lastMessage,
     sendMessage,
-    reconnect: connect,
-    testSound
+    reconnect,
+    disconnect,
+    testSound,
   };
 }
+
+// ============================================
+// EXPORT
+// ============================================
+
+export default useWebSocket;

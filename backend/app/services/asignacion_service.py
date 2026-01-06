@@ -51,6 +51,7 @@ from app.services.compatibilidad_service import (
     CompatibilidadService,
     verificar_y_actualizar_sexo_sala_al_egreso,
     verificar_y_actualizar_sexo_sala_al_ingreso,
+    recalcular_sexo_sala_al_cancelar_asignacion,
     NIVEL_COMPLEJIDAD,
     _obtener_nivel_complejidad,
 )
@@ -656,6 +657,11 @@ class AsignacionService:
         paciente.requiere_nueva_cama = False
         self.session.add(paciente)
         
+        # Actualizar sexo de sala destino al momento de la asignación
+        # Esto asegura que la sala quede marcada con el sexo correcto
+        # antes de que el paciente llegue físicamente
+        verificar_y_actualizar_sexo_sala_al_ingreso(self.session, cama, paciente)
+
         self.session.commit()
 
         logger.info(f"Cama {cama.identificador} asignada a {paciente.nombre}")

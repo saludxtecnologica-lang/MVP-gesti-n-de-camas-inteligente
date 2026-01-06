@@ -204,7 +204,7 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
   // Handlers
   const handleReevaluar = () => {
     onClose();
-    openModal('reevaluarPaciente', paciente);
+    openModal('reevaluar', { paciente });
   };
 
   const handleAbrirDerivacion = () => {

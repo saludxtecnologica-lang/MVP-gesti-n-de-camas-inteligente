@@ -203,22 +203,39 @@ class CompatibilidadService:
         
         Revisa:
         1. El campo sexo_asignado de la sala
-        2. Los pacientes actualmente en las camas de la sala
+        2. Los pacientes actualmente en las camas de la sala (cama_id)
+        3. Los pacientes asignados a camas de la sala pero que aún no llegan (cama_destino_id)
         
         Returns:
-            String con el sexo ('hombre', 'mujer') o None si la sala está vacía
+            String con el sexo ('hombre', 'mujer') o None si la sala está vacía/sin asignaciones
         """
         # Si la sala ya tiene sexo asignado, retornarlo normalizado
         if sala.sexo_asignado:
             return _normalizar_sexo(sala.sexo_asignado)
         
-        # Si no, verificar si hay pacientes en las camas
+        # Obtener IDs de todas las camas de esta sala
+        ids_camas_sala = [cama.id for cama in sala.camas]
+        
+        if not ids_camas_sala:
+            return None
+        
+        # Buscar pacientes que están físicamente en las camas (cama_id)
         for cama in sala.camas:
             if cama.estado in ESTADOS_CAMA_OCUPADA:
-                # Buscar paciente en esta cama
                 query = select(Paciente).where(Paciente.cama_id == cama.id)
                 paciente = self.session.exec(query).first()
                 if paciente and paciente.sexo:
+                    return _normalizar_sexo(paciente.sexo)
+        
+        # Buscar pacientes asignados pero que aún no llegan (cama_destino_id)
+        # Esto cubre el caso de asignaciones pendientes (TRASLADO_ENTRANTE)
+        query = select(Paciente).where(Paciente.cama_destino_id.in_(ids_camas_sala))
+        pacientes_asignados = self.session.exec(query).all()
+        
+        if pacientes_asignados:
+            # Retornar el sexo del primer paciente asignado encontrado
+            for paciente in pacientes_asignados:
+                if paciente.sexo:
                     return _normalizar_sexo(paciente.sexo)
         
         return None
@@ -264,10 +281,11 @@ class CompatibilidadService:
     
     def actualizar_sexo_sala(self, sala: Sala) -> Optional[str]:
         """
-        Actualiza el sexo asignado de una sala basándose en sus pacientes actuales.
+        Actualiza el sexo asignado de una sala basándose en sus pacientes actuales
+        y pacientes con asignación pendiente.
         
-        Si la sala queda vacía, el sexo se limpia.
-        Si hay pacientes, el sexo se asigna al del primer paciente encontrado.
+        Si la sala queda vacía y sin asignaciones pendientes, el sexo se limpia.
+        Si hay pacientes (físicos o asignados), el sexo se asigna al del primer paciente encontrado.
         
         Returns:
             El nuevo sexo asignado (como string) o None si la sala quedó vacía
@@ -278,14 +296,27 @@ class CompatibilidadService:
             self.session.add(sala)
             return None
         
-        # Buscar pacientes en las camas de la sala
+        # Obtener IDs de todas las camas de esta sala
+        ids_camas_sala = [cama.id for cama in sala.camas]
+        
         sexo_encontrado = None
+        
+        # Buscar pacientes físicamente en las camas de la sala
         for cama in sala.camas:
             if cama.estado in ESTADOS_CAMA_OCUPADA:
                 query = select(Paciente).where(Paciente.cama_id == cama.id)
                 paciente = self.session.exec(query).first()
                 if paciente and paciente.sexo:
-                    # Normalizar a string para guardar
+                    sexo_encontrado = _normalizar_sexo(paciente.sexo)
+                    break
+        
+        # NUEVO: Si no encontró pacientes físicos, buscar asignaciones pendientes
+        if not sexo_encontrado and ids_camas_sala:
+            query = select(Paciente).where(Paciente.cama_destino_id.in_(ids_camas_sala))
+            pacientes_asignados = self.session.exec(query).all()
+            
+            for paciente in pacientes_asignados:
+                if paciente.sexo:
                     sexo_encontrado = _normalizar_sexo(paciente.sexo)
                     break
         
@@ -853,3 +884,20 @@ def verificar_y_actualizar_sexo_sala_al_ingreso(session: Session, cama: Cama, pa
                 sala.sexo_asignado = _normalizar_sexo(paciente.sexo)
                 session.add(sala)
                 logger.debug(f"Sexo de sala {sala.id} asignado a {sala.sexo_asignado} por ingreso de paciente")
+
+def recalcular_sexo_sala_al_cancelar_asignacion(session: Session, cama: Cama) -> None:
+    """
+    Recalcula el sexo de la sala cuando se cancela una asignación.
+    
+    Debe llamarse después de que se cancela un traslado y se libera una cama destino.
+    Esto asegura que si no quedan más pacientes/asignaciones del mismo sexo,
+    la sala quede disponible para otro sexo.
+    """
+    if cama.sala:
+        service = CompatibilidadService(session)
+        if not service.es_sala_individual(cama.sala):
+            nuevo_sexo = service.actualizar_sexo_sala(cama.sala)
+            logger.debug(
+                f"Sexo de sala {cama.sala.id} recalculado a {nuevo_sexo} "
+                f"tras cancelar asignación de cama {cama.identificador}"
+            )

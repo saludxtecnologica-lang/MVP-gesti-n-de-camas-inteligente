@@ -32,14 +32,13 @@ from app.core.exceptions import (
 )
 from app.core.websocket_manager import manager
 
-# NUEVO IMPORT
 from app.services.compatibilidad_service import (
     CompatibilidadService,
     verificar_y_actualizar_sexo_sala_al_egreso,
     verificar_y_actualizar_sexo_sala_al_ingreso,
+    recalcular_sexo_sala_al_cancelar_asignacion,
 )
 
-# NUEVO IMPORT TTS
 from app.core.eventos_audibles import crear_evento_traslado_completado
 
 logger = logging.getLogger("gestion_camas.traslado")
@@ -354,6 +353,8 @@ class TrasladoService:
                 cama_destino.cama_asignada_destino = None
                 cama_destino.estado_updated_at = datetime.utcnow()
                 self.session.add(cama_destino)
+                # Recalcular sexo de sala al cancelar asignación
+                recalcular_sexo_sala_al_cancelar_asignacion(self.session, cama_destino)
         
         # Restaurar cama origen a CAMA_EN_ESPERA
         cama_origen.estado = EstadoCamaEnum.CAMA_EN_ESPERA
@@ -416,6 +417,8 @@ class TrasladoService:
             cama_destino.cama_asignada_destino = None
             cama_destino.estado_updated_at = datetime.utcnow()
             self.session.add(cama_destino)
+            # Recalcular sexo de sala al cancelar asignación
+            recalcular_sexo_sala_al_cancelar_asignacion(self.session, cama_destino)
         
         # Si tiene cama origen, restaurar a OCUPADA
         if paciente.cama_id:
@@ -511,6 +514,8 @@ class TrasladoService:
                 cama_destino.cama_asignada_destino = None
                 cama_destino.estado_updated_at = datetime.utcnow()
                 self.session.add(cama_destino)
+                # Recalcular sexo de sala al cancelar asignación
+                recalcular_sexo_sala_al_cancelar_asignacion(self.session, cama_destino)
         
         # Restaurar cama origen a CAMA_EN_ESPERA
         if paciente.cama_id:
