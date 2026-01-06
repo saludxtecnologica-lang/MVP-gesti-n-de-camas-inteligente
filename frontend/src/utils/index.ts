@@ -143,22 +143,22 @@ export function formatTipoEnfermedad(tipo: string): string {
 // ============================================
 
 export const COLORES_ESTADO: Record<string, string> = {
-  libre: 'bg-green-100 border-green-500 text-green-800',
-  ocupada: 'bg-blue-100 border-blue-500 text-blue-800',
-  traslado_entrante: 'bg-yellow-100 border-yellow-500 text-yellow-800',
-  traslado_saliente: 'bg-orange-100 border-orange-500 text-orange-800',
-  traslado_confirmado: 'bg-purple-100 border-purple-500 text-purple-800',
-  cama_en_espera: 'bg-amber-100 border-amber-500 text-amber-800',
-  alta_sugerida: 'bg-teal-100 border-teal-500 text-teal-800',
-  cama_alta: 'bg-cyan-100 border-cyan-500 text-cyan-800',
-  en_limpieza: 'bg-gray-100 border-gray-500 text-gray-800',
-  bloqueada: 'bg-red-100 border-red-500 text-red-800',
-  espera_derivacion: 'bg-indigo-100 border-indigo-500 text-indigo-800',
-  derivacion_confirmada: 'bg-pink-100 border-pink-500 text-pink-800',
+  libre: 'bg-gray-50 border-gray-300 text-gray-600',
+  ocupada: 'bg-green-50 border-green-500 text-green-700',
+  traslado_entrante: 'bg-yellow-50 border-yellow-400 text-yellow-700',
+  traslado_saliente: 'bg-pink-50 border-pink-400 text-pink-700',
+  traslado_confirmado: 'bg-orange-50 border-orange-500 text-orange-700',
+  cama_en_espera: 'bg-purple-50 border-purple-500 text-purple-700',
+  alta_sugerida: 'bg-blue-50 border-blue-500 text-blue-700',
+  cama_alta: 'bg-orange-50 border-orange-500 text-orange-700',
+  en_limpieza: 'bg-red-50 border-red-500 text-red-700',
+  bloqueada: 'bg-red-50 border-red-600 text-red-800',
+  espera_derivacion: 'bg-indigo-50 border-indigo-500 text-indigo-700',
+  derivacion_confirmada: 'bg-pink-50 border-pink-500 text-pink-700',
   // ============================================
   // NUEVO: Estado FALLECIDO
   // ============================================
-  fallecido: 'bg-gray-700 text-white border-gray-800',
+  fallecido: 'bg-gray-800 text-gray-100 border-gray-900',
 };
 
 export const COLORES_COMPLEJIDAD: Record<string, string> = {

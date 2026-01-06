@@ -5,31 +5,33 @@
   --color-primary-dark: #1d4ed8;
   --color-primary-light: #3b82f6;
   
-  /* Colores de estado de camas */
-  --color-libre: #9ca3af;
-  --color-libre-bg: #f3f4f6;
+  /* Colores de estado de camas - ACTUALIZADOS */
+  --color-libre: #d1d5db;
+  --color-libre-bg: #f9fafb;
   --color-ocupada: #22c55e;
-  --color-ocupada-bg: #dcfce7;
-  --color-traslado-entrante: #eab308;
-  --color-traslado-entrante-bg: #fef9c3;
+  --color-ocupada-bg: #f0fdf4;
+  --color-traslado-entrante: #facc15;
+  --color-traslado-entrante-bg: #fefce8;
   --color-cama-en-espera: #a855f7;
-  --color-cama-en-espera-bg: #f3e8ff;
-  --color-traslado-saliente: #f97316;
-  --color-traslado-saliente-bg: #ffedd5;
+  --color-cama-en-espera-bg: #faf5ff;
+  --color-traslado-saliente: #ec4899;
+  --color-traslado-saliente-bg: #fdf2f8;
   --color-traslado-confirmado: #f97316;
-  --color-traslado-confirmado-bg: #ffedd5;
+  --color-traslado-confirmado-bg: #fff7ed;
   --color-alta-sugerida: #3b82f6;
-  --color-alta-sugerida-bg: #dbeafe;
-  --color-cama-alta: #1e3a8a;
-  --color-cama-alta-bg: #dbeafe;
+  --color-alta-sugerida-bg: #eff6ff;
+  --color-cama-alta: #f97316;
+  --color-cama-alta-bg: #fff7ed;
   --color-en-limpieza: #ef4444;
-  --color-en-limpieza-bg: #fee2e2;
-  --color-bloqueada: #6b7280;
-  --color-bloqueada-bg: #e5e7eb;
-  --color-espera-derivacion: #f97316;
-  --color-espera-derivacion-bg: #ffedd5;
-  --color-derivacion-confirmada: #f97316;
-  --color-derivacion-confirmada-bg: #ffedd5;
+  --color-en-limpieza-bg: #fef2f2;
+  --color-bloqueada: #dc2626;
+  --color-bloqueada-bg: #fef2f2;
+  --color-fallecido: #1f2937;
+  --color-fallecido-bg: #111827;
+  --color-espera-derivacion: #6366f1;
+  --color-espera-derivacion-bg: #eef2ff;
+  --color-derivacion-confirmada: #ec4899;
+  --color-derivacion-confirmada-bg: #fdf2f8;
   
   /* Colores de UI */
   --color-success: #22c55e;
@@ -3406,4 +3408,118 @@ input[type="number"]::placeholder {
 
 .sub-input:required:valid {
   border-color: var(--color-success);
+}
+
+/* ============================================ */
+/* ANIMACIONES MODERNAS PARA TARJETAS DE CAMA */
+/* ============================================ */
+
+@keyframes cardEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Animación para cambios de estado */
+@keyframes stateChange {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Animación de pulso suave */
+@keyframes softPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: 0.95;
+  }
+}
+
+/* Animación para badges */
+@keyframes badgeAppear {
+  from {
+    transform: scale(0.8) translateY(-5px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Utilidades de animación */
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.3s ease-out;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.2s ease-out;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-stateChange {
+  animation: stateChange 0.4s ease-in-out;
 }
