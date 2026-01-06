@@ -210,22 +210,26 @@ export function CamaCard({ cama }: CamaCardProps) {
     }
 
     setVerificandoDisponibilidad(true);
-    
+
     try {
       const verificacion = await api.verificarDisponibilidadTipoCama(pac.id);
-      
-      if (verificacion.tiene_tipo_cama) {
-        try {
-          const resultado = await api.buscarCamaPaciente(pac.id);
-          showAlert('success', resultado.message || 'Búsqueda de cama iniciada');
-          await recargarTodo();
-        } catch (error) {
-          showAlert('error', error instanceof Error ? error.message : 'Error al iniciar búsqueda');
-        }
-      } else {
+
+      // CASO 1: Hospital NO tiene el tipo de servicio → Buscar en red
+      if (!verificacion.tiene_tipo_servicio) {
         setPacienteParaBusquedaRed(pac);
         setModalBusquedaRedAbierto(true);
         showAlert('info', verificacion.mensaje || 'El hospital no cuenta con el tipo de cama requerido. Buscando en la red hospitalaria...');
+      }
+      // CASO 2 y 3: Hospital SÍ tiene el tipo de servicio → Ir a lista de espera
+      // (sin importar si hay camas libres o no)
+      else {
+        try {
+          const resultado = await api.buscarCamaPaciente(pac.id);
+          showAlert('success', resultado.message || 'Paciente agregado a lista de espera');
+          await recargarTodo();
+        } catch (error) {
+          showAlert('error', error instanceof Error ? error.message : 'Error al agregar a lista de espera');
+        }
       }
     } catch (error) {
       console.error('Error verificando disponibilidad:', error);

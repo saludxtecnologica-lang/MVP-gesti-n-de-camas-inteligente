@@ -762,24 +762,36 @@ def verificar_disponibilidad_tipo_cama(
 ):
     """
     Verifica si el hospital actual del paciente tiene el tipo de cama requerido.
-    
-    Se usa antes de iniciar búsqueda de cama para determinar si es necesario
-    buscar en otros hospitales.
+
+    ACTUALIZADO v4.0: Ahora distingue entre:
+    - No tener el tipo de servicio (debe buscar en red)
+    - Tener el servicio pero sin camas libres (solo lista de espera)
+
+    Returns:
+        - tiene_tipo_servicio: Si el hospital tiene el tipo de servicio requerido
+        - tiene_camas_libres: Si hay camas libres disponibles en ese servicio
+        - mensaje: Mensaje explicativo de la situación
+
+    Casos de uso:
+    - tiene_tipo_servicio=False → Buscar en otros hospitales
+    - tiene_tipo_servicio=True, tiene_camas_libres=False → Lista de espera únicamente
+    - tiene_tipo_servicio=True, tiene_camas_libres=True → Proceder con búsqueda normal
     """
     repo = PacienteRepository(session)
     service = AsignacionService(session)
-    
+
     paciente = repo.obtener_por_id(paciente_id)
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
-    
-    tiene_tipo, mensaje = service.verificar_disponibilidad_tipo_cama_hospital(
-        paciente, 
+
+    tiene_tipo_servicio, tiene_camas_libres, mensaje = service.verificar_disponibilidad_tipo_cama_hospital(
+        paciente,
         paciente.hospital_id
     )
-    
+
     return {
-        "tiene_tipo_cama": tiene_tipo,
+        "tiene_tipo_servicio": tiene_tipo_servicio,
+        "tiene_camas_libres": tiene_camas_libres,
         "mensaje": mensaje,
         "paciente_id": paciente_id,
         "hospital_id": paciente.hospital_id
