@@ -9,8 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from app.core.database import get_session
+from app.core.auth_dependencies import get_current_user
+from app.core.rbac_service import rbac_service
 from app.core.websocket_manager import manager
 from app.core.exceptions import PacienteNotFoundError, ValidationError, CamaNotFoundError
+from app.models.usuario import Usuario, PermisoEnum, RolEnum
 from app.schemas.responses import MessageResponse
 from app.services.traslado_service import TrasladoService
 
@@ -20,9 +23,26 @@ router = APIRouter()
 @router.post("/{paciente_id}/completar", response_model=MessageResponse)
 async def completar_traslado(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Completa el traslado de un paciente a su cama destino."""
+    """
+    Completa el traslado de un paciente a su cama destino.
+    MEDICO, ENFERMERA o TENS pueden completar traslados.
+    """
+    # Verificar que el usuario puede completar traslados
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.ENFERMERA, RolEnum.TENS, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo médicos, enfermeras o TENS pueden completar traslados"
+        )
+
+    # Verificar permiso
+    if not current_user.tiene_permiso(PermisoEnum.TRASLADO_COMPLETAR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para completar traslados"
+        )
     service = TrasladoService(session)
     
     try:
@@ -58,9 +78,23 @@ async def completar_traslado(
 @router.post("/{paciente_id}/cancelar", response_model=MessageResponse)
 async def cancelar_traslado(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Cancela un traslado pendiente."""
+    """Cancela un traslado pendiente. Solo MEDICO o ENFERMERA pueden cancelar."""
+    # Verificar que solo MEDICO o ENFERMERA pueden cancelar
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.ENFERMERA, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo médicos o enfermeras pueden cancelar traslados"
+        )
+
+    # Verificar permiso
+    if not current_user.tiene_permiso(PermisoEnum.TRASLADO_CANCELAR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para cancelar traslados"
+        )
     service = TrasladoService(session)
     
     try:

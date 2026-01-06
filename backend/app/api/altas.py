@@ -5,8 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from app.core.database import get_session
+from app.core.auth_dependencies import get_current_user
+from app.core.rbac_service import rbac_service
 from app.core.websocket_manager import manager
 from app.core.exceptions import PacienteNotFoundError, ValidationError
+from app.models.usuario import Usuario, PermisoEnum, RolEnum
 from app.schemas.responses import MessageResponse
 from app.services.alta_service import AltaService
 from app.services.Limpieza_service import OxigenoService
@@ -17,9 +20,23 @@ router = APIRouter()
 @router.post("/{paciente_id}/iniciar", response_model=MessageResponse)
 async def iniciar_alta(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Inicia el proceso de alta de un paciente."""
+    """Inicia el proceso de alta de un paciente. Solo MEDICO puede sugerir altas."""
+    # Verificar que solo MEDICO puede sugerir altas
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo los médicos pueden sugerir altas"
+        )
+
+    # Verificar permiso
+    if not current_user.tiene_permiso(PermisoEnum.ALTA_SUGERIR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para sugerir altas"
+        )
     service = AltaService(session)
     
     try:
@@ -42,9 +59,23 @@ async def iniciar_alta(
 @router.post("/{paciente_id}/ejecutar", response_model=MessageResponse)
 async def ejecutar_alta(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Ejecuta el alta y libera la cama."""
+    """Ejecuta el alta y libera la cama. Solo ENFERMERA puede ejecutar altas."""
+    # Verificar que solo ENFERMERA puede ejecutar altas
+    if current_user.rol not in [RolEnum.ENFERMERA, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo las enfermeras pueden ejecutar altas"
+        )
+
+    # Verificar permiso
+    if not current_user.tiene_permiso(PermisoEnum.ALTA_EJECUTAR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para ejecutar altas"
+        )
     service = AltaService(session)
     
     try:

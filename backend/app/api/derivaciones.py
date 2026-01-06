@@ -6,8 +6,11 @@ from sqlmodel import Session
 from typing import List
 
 from app.core.database import get_session
+from app.core.auth_dependencies import get_current_user
+from app.core.rbac_service import rbac_service
 from app.core.websocket_manager import manager
 from app.core.exceptions import PacienteNotFoundError, ValidationError
+from app.models.usuario import Usuario, PermisoEnum, RolEnum
 from app.schemas.derivacion import DerivacionRequest, DerivacionAccionRequest
 from app.schemas.paciente import PacienteDerivadoResponse
 from app.schemas.responses import MessageResponse
@@ -99,9 +102,23 @@ def obtener_derivados_enviados(hospital_id: str, session: Session = Depends(get_
 async def solicitar_derivacion(
     paciente_id: str,
     request: DerivacionRequest,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Solicita una derivación para un paciente."""
+    """Solicita una derivación para un paciente. Solo MEDICO puede solicitar derivaciones."""
+    # Verificar que solo MEDICO puede solicitar derivaciones
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo los médicos pueden solicitar derivaciones"
+        )
+
+    # Verificar permiso
+    if not current_user.tiene_permiso(PermisoEnum.DERIVACION_SOLICITAR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para solicitar derivaciones"
+        )
     service = DerivacionService(session)
     
     try:
@@ -133,9 +150,30 @@ async def solicitar_derivacion(
 async def accion_derivacion(
     paciente_id: str,
     request: DerivacionAccionRequest,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Acepta o rechaza una derivación."""
+    """Acepta o rechaza una derivación. Solo MEDICO puede aceptar/rechazar."""
+    # Verificar que solo MEDICO puede aceptar/rechazar derivaciones
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo los médicos pueden aceptar o rechazar derivaciones"
+        )
+
+    # Verificar permisos según la acción
+    if request.accion == "aceptar":
+        if not current_user.tiene_permiso(PermisoEnum.DERIVACION_ACEPTAR):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para aceptar derivaciones"
+            )
+    else:
+        if not current_user.tiene_permiso(PermisoEnum.DERIVACION_RECHAZAR):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para rechazar derivaciones"
+            )
     service = DerivacionService(session)
     
     try:

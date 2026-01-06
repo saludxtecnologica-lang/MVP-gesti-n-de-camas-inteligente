@@ -13,8 +13,11 @@ import logging
 
 from app.config import settings
 from app.core.database import get_session
+from app.core.auth_dependencies import get_current_user, require_not_readonly
+from app.core.rbac_service import rbac_service
 from app.core.websocket_manager import manager
 from app.core.exceptions import PacienteNotFoundError, ValidationError
+from app.models.usuario import Usuario, PermisoEnum, RolEnum
 from app.models.paciente import Paciente
 from app.models.cama import Cama
 from app.models.configuracion import ConfiguracionSistema
@@ -147,14 +150,36 @@ def calcular_tiempo_restante_pausa(paciente: Paciente, tiempo_espera_total: int)
 @router.post("", response_model=PacienteResponse)
 async def crear_paciente(
     paciente_data: PacienteCreate,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     Crea un nuevo paciente y lo agrega a la cola de espera.
-    
+    Solo MEDICO puede crear pacientes.
+
     Si se especifica derivacion_hospital_destino_id, se solicita la derivación
     automáticamente después de crear el paciente.
     """
+    # Verificar que solo MEDICO puede crear pacientes
+    if current_user.rol != RolEnum.MEDICO and current_user.rol != RolEnum.PROGRAMADOR:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo los médicos pueden registrar nuevos pacientes"
+        )
+
+    # Verificar permiso PACIENTE_CREAR
+    if not current_user.tiene_permiso(PermisoEnum.PACIENTE_CREAR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para crear pacientes"
+        )
+
+    # Verificar acceso al hospital
+    if not rbac_service.puede_acceder_hospital(current_user, paciente_data.hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para registrar pacientes en este hospital"
+        )
     repo = PacienteRepository(session)
     service = AsignacionService(session)
     
@@ -267,16 +292,41 @@ async def crear_paciente(
 
 
 @router.get("/{paciente_id}", response_model=PacienteResponse)
-def obtener_paciente(paciente_id: str, session: Session = Depends(get_session)):
-    """Obtiene un paciente por ID."""
+def obtener_paciente(
+    paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """Obtiene un paciente por ID. Filtrado por permisos del usuario."""
     repo = PacienteRepository(session)
     paciente = repo.obtener_por_id(paciente_id)
-    
+
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
-    
+
+    # Verificar acceso al hospital del paciente
+    if not rbac_service.puede_acceder_hospital(current_user, paciente.hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para ver este paciente"
+        )
+
+    # Verificar acceso por servicio (si el usuario tiene servicio asignado)
+    if current_user.servicio_id:
+        puede_ver = rbac_service.puede_ver_paciente(
+            current_user,
+            paciente.servicio_origen if hasattr(paciente, 'servicio_origen') else None,
+            paciente.servicio_destino if hasattr(paciente, 'servicio_destino') else None,
+            paciente.hospital_id
+        )
+        if not puede_ver:
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para ver este paciente (servicio no coincide)"
+            )
+
     mensaje_broadcast = "Paciente actualizado"
-    
+
     return crear_paciente_response(paciente)
 
 
@@ -284,11 +334,13 @@ def obtener_paciente(paciente_id: str, session: Session = Depends(get_session)):
 async def actualizar_paciente(
     paciente_id: str,
     paciente_data: PacienteUpdate,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     Actualiza un paciente (reevaluación).
-    
+    Solo MEDICO puede hacer cambios clínicos (reevaluaciones).
+
     LÓGICA DE PAUSA DE OXÍGENO:
     
     1. Si hay descalaje Y NO hay pausa activa:
@@ -311,14 +363,49 @@ async def actualizar_paciente(
     DERIVACIÓN:
     Si se especifica derivacion_hospital_destino_id, se solicita la derivación.
     """
+    # Verificar que solo MEDICO puede reevaluar
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo los médicos pueden reevaluar pacientes"
+        )
+
+    # Verificar permiso PACIENTE_REEVALUAR
+    if not current_user.tiene_permiso(PermisoEnum.PACIENTE_REEVALUAR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para reevaluar pacientes"
+        )
+
     repo = PacienteRepository(session)
     cama_repo = CamaRepository(session)
     service = AsignacionService(session)
-    
+
     paciente = repo.obtener_por_id(paciente_id)
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
-    
+
+    # Verificar acceso al hospital del paciente
+    if not rbac_service.puede_acceder_hospital(current_user, paciente.hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para modificar pacientes de este hospital"
+        )
+
+    # Verificar acceso por servicio
+    if current_user.servicio_id:
+        puede_ver = rbac_service.puede_ver_paciente(
+            current_user,
+            paciente.servicio_origen if hasattr(paciente, 'servicio_origen') else None,
+            paciente.servicio_destino if hasattr(paciente, 'servicio_destino') else None,
+            paciente.hospital_id
+        )
+        if not puede_ver:
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para modificar este paciente (servicio no coincide)"
+            )
+
     # ============================================
     # GUARDAR ESTADO ANTERIOR
     # ============================================
@@ -713,13 +800,28 @@ async def actualizar_paciente(
 @router.post("/{paciente_id}/buscar-cama", response_model=MessageResponse)
 async def buscar_cama_paciente(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     Inicia búsqueda de nueva cama para paciente hospitalizado.
-    
+    Solo MEDICO puede iniciar búsqueda de cama.
+
     IMPORTANTE: No permite iniciar búsqueda si el paciente está en pausa de oxígeno.
     """
+    # Verificar que solo MEDICO puede iniciar búsqueda
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo los médicos pueden iniciar búsqueda de cama"
+        )
+
+    # Verificar permiso
+    if not current_user.tiene_permiso(PermisoEnum.BUSQUEDA_CAMA_INICIAR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para iniciar búsqueda de cama"
+        )
     repo = PacienteRepository(session)
     service = AsignacionService(session)
     
@@ -847,9 +949,16 @@ def buscar_camas_en_red_hospitalaria(
 @router.delete("/{paciente_id}/cancelar-busqueda", response_model=MessageResponse)
 async def cancelar_busqueda(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Cancela búsqueda de cama."""
+    """Cancela búsqueda de cama. Solo MEDICO puede cancelar."""
+    # Verificar que solo MEDICO puede cancelar búsqueda
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo los médicos pueden cancelar búsqueda de cama"
+        )
     service = AsignacionService(session)
     
     try:
@@ -961,10 +1070,12 @@ async def cancelar_busqueda_y_volver_a_cama(
 @router.delete("/{paciente_id}/eliminar", summary="Eliminar paciente sin cama del sistema")
 async def eliminar_paciente_sin_cama(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     Elimina un paciente que NO tiene cama asignada del sistema.
+    Solo MEDICO puede eliminar pacientes.
     
     Solo funciona si el paciente NO tiene cama (cama_id es None).
     - Remueve al paciente de la lista de espera
@@ -972,8 +1083,15 @@ async def eliminar_paciente_sin_cama(
     
     Retorna error si el paciente tiene cama asignada (usar cancelar-y-volver en su lugar).
     """
+    # Verificar que solo MEDICO puede eliminar
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo los médicos pueden eliminar pacientes"
+        )
+
     from sqlmodel import select
-    
+
     # Buscar paciente
     paciente = session.exec(select(Paciente).where(Paciente.id == paciente_id)).first()
     if not paciente:
@@ -981,7 +1099,7 @@ async def eliminar_paciente_sin_cama(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Paciente no encontrado"
         )
-    
+
     # Verificar que NO tiene cama asignada
     if paciente.cama_id:
         raise HTTPException(

@@ -1,5 +1,5 @@
 """
-Endpoints de Camas.
+Endpoints de Camas con restricciones RBAC.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
@@ -7,6 +7,9 @@ from typing import List
 
 from app.core.database import get_session
 from app.core.websocket_manager import manager
+from app.core.auth_dependencies import get_current_user
+from app.core.rbac_service import rbac_service
+from app.models.usuario import Usuario, PermisoEnum
 from app.models.enums import EstadoCamaEnum
 from app.schemas.cama import CamaResponse, CamaBloquearRequest
 from app.schemas.responses import MessageResponse
@@ -47,19 +50,47 @@ def obtener_cama(cama_id: str, session: Session = Depends(get_session)):
 async def bloquear_cama(
     cama_id: str,
     request: CamaBloquearRequest,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Bloquea o desbloquea una cama."""
+    """
+    Bloquea o desbloquea una cama.
+
+    Restricciones RBAC:
+    - Puerto Montt: Solo GESTOR_CAMAS
+    - Llanquihue/Calbuco: Solo equipo clínico de medicoquirúrgico
+    """
+    # Verificar permiso básico
+    if not current_user.tiene_permiso(PermisoEnum.CAMA_BLOQUEAR):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para bloquear/desbloquear camas"
+        )
+
     repo = CamaRepository(session)
     cama = repo.obtener_por_id(cama_id)
-    
+
     if not cama:
         raise HTTPException(status_code=404, detail="Cama no encontrada")
-    
+
+    # Obtener hospital de la cama
+    sala = cama.sala
+    if not sala or not sala.servicio:
+        raise HTTPException(status_code=400, detail="No se pudo determinar el hospital de la cama")
+
+    hospital_id = sala.servicio.hospital_id
+
+    # Verificar permiso específico para bloquear camas según hospital
+    if not rbac_service.puede_bloquear_camas(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail=f"No tienes permisos para bloquear camas en este hospital. Solo el Gestor de Camas (Puerto Montt) o equipo medicoquirúrgico (Llanquihue/Calbuco) pueden hacerlo."
+        )
+
     if request.bloquear:
         if cama.estado != EstadoCamaEnum.LIBRE:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Solo se pueden bloquear camas libres"
             )
         repo.cambiar_estado(cama, EstadoCamaEnum.BLOQUEADA, "Bloqueada")
@@ -67,17 +98,17 @@ async def bloquear_cama(
     else:
         if cama.estado != EstadoCamaEnum.BLOQUEADA:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="La cama no está bloqueada"
             )
         repo.cambiar_estado(cama, EstadoCamaEnum.LIBRE)
         mensaje = "Cama desbloqueada correctamente"
-    
+
     await manager.broadcast({
         "tipo": "cama_actualizada",
         "cama_id": cama_id
     })
-    
+
     return MessageResponse(success=True, message=mensaje)
 
 
