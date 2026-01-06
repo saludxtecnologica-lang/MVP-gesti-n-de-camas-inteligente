@@ -10,7 +10,7 @@ from typing import Optional, List
 from datetime import datetime, timezone
 
 from app.core.database import get_session
-from app.core.auth_dependencies import get_current_user
+from app.core.auth_dependencies import get_current_user, require_not_readonly
 from app.core.rbac_service import rbac_service
 from app.models.usuario import Usuario, PermisoEnum
 from app.models.hospital import Hospital
