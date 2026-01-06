@@ -10,7 +10,7 @@ from typing import Optional, List
 from datetime import datetime, timezone
 
 from app.core.database import get_session
-from app.core.auth_dependencies import get_current_user
+from app.core.auth_dependencies import get_current_user, require_not_readonly
 from app.core.rbac_service import rbac_service
 from app.models.usuario import Usuario, PermisoEnum
 from app.models.hospital import Hospital
@@ -41,7 +41,13 @@ def obtener_hospitales(
 
     # Filtrar hospitales según permisos del usuario
     hospitales_permitidos = rbac_service.obtener_hospitales_permitidos(current_user)
-    hospitales = [h for h in hospitales_todos if h.id in hospitales_permitidos]
+    if hospitales_permitidos is None:
+        # None significa acceso a todos los hospitales (PROGRAMADOR, DIRECTIVO_RED)
+        hospitales = hospitales_todos
+    else:
+        # Filtrar por los hospitales permitidos
+        hospitales = [h for h in hospitales_todos if h.id in hospitales_permitidos]
+
     resultado = []
     
     for hospital in hospitales:

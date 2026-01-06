@@ -38,8 +38,9 @@ async def asignar_manual_desde_cama(
     Asigna manualmente un paciente a una cama desde otra cama.
     Solo GESTOR_CAMAS de Puerto Montt tiene acceso a modo manual.
     """
-    # Verificar acceso a modo manual
-    if not rbac_service.puede_usar_modo_manual(current_user, request.paciente_id):
+    # Verificar acceso a modo manual (usar hospital del usuario)
+    hospital_id = current_user.hospital_id or "puerto_montt"  # Default a Puerto Montt
+    if not rbac_service.puede_usar_modo_manual(current_user, hospital_id):
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
@@ -84,8 +85,9 @@ async def asignar_manual_desde_lista(
 
     CORREGIDO: Usa el método correcto asignar_cama() del AsignacionService.
     """
-    # Verificar acceso a modo manual
-    if not rbac_service.puede_usar_modo_manual(current_user, request.paciente_id):
+    # Verificar acceso a modo manual (usar hospital del usuario)
+    hospital_id = current_user.hospital_id or "puerto_montt"  # Default a Puerto Montt
+    if not rbac_service.puede_usar_modo_manual(current_user, hospital_id):
         raise HTTPException(
             status_code=403,
             detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
