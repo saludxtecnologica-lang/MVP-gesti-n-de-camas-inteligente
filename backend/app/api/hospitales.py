@@ -55,8 +55,9 @@ def obtener_hospitales(
         # None significa acceso a todos los hospitales (PROGRAMADOR, DIRECTIVO_RED)
         hospitales = hospitales_todos
     else:
-        # Filtrar por los hospitales permitidos
-        hospitales = [h for h in hospitales_todos if h.id in hospitales_permitidos]
+        # Filtrar por los hospitales permitidos (soporta comparación por código o UUID)
+        hospitales = [h for h in hospitales_todos
+                     if h.id in hospitales_permitidos or h.codigo in hospitales_permitidos]
 
     resultado = []
     
@@ -166,8 +167,12 @@ def obtener_servicios(
     
     for servicio in servicios:
         # Filtrar por servicio si el usuario tiene restricción de servicio
-        if current_user.servicio_id and current_user.servicio_id != servicio.id:
-            continue
+        # Soporta comparación por código o UUID
+        if current_user.servicio_id:
+            servicio_coincide = (current_user.servicio_id == servicio.id or
+                                current_user.servicio_id == servicio.codigo)
+            if not servicio_coincide:
+                continue
 
         camas = cama_repo.obtener_por_servicio(servicio.id)
         camas_libres = len([c for c in camas if c.estado == EstadoCamaEnum.LIBRE])
@@ -213,9 +218,13 @@ def obtener_camas_hospital(
         servicio = sala.servicio if sala else None
 
         # Filtrar por servicio si el usuario tiene restricción de servicio
-        if servicio and current_user.servicio_id and current_user.servicio_id != servicio.id:
-            continue
-        
+        # Soporta comparación por código o UUID
+        if servicio and current_user.servicio_id:
+            servicio_coincide = (current_user.servicio_id == servicio.id or
+                                current_user.servicio_id == servicio.codigo)
+            if not servicio_coincide:
+                continue
+
         # Obtener paciente actual
         paciente = None
         paciente_entrante = None
