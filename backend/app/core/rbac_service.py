@@ -33,6 +33,20 @@ CODIGO_SERVICIO_MAP = {
     "ambulatorio": "Amb",
 }
 
+# Mapeo de nombres de servicio (como aparecen en BD) a códigos largos
+NOMBRE_SERVICIO_TO_CODIGO = {
+    "Medicina": "medicina",
+    "Cirugía": "cirugia",
+    "UCI": "uci",
+    "UTI": "uti",
+    "Pediatría": "pediatria",
+    "Obstetricia": "obstetricia",
+    "Aislamiento": "aislamiento",
+    "Médico-Quirúrgico": "medicoquirurgico",
+    "Urgencias": "urgencias",
+    "Ambulatorio": "ambulatorio",
+}
+
 
 # ============================================
 # MAPEO DE SERVICIOS POR ROL
@@ -169,6 +183,37 @@ class RBACService:
         return True
 
     @staticmethod
+    def normalizar_servicio(servicio: Optional[str]) -> Optional[str]:
+        """
+        Normaliza un nombre de servicio a su código largo en minúsculas.
+
+        Args:
+            servicio: Puede ser nombre ("Medicina"), código corto ("Med") o código largo ("medicina")
+
+        Returns:
+            Código largo normalizado ("medicina") o None
+        """
+        if not servicio:
+            return None
+
+        # Si ya está en formato de código largo, retornarlo
+        servicio_lower = servicio.lower()
+        if servicio_lower in CODIGO_SERVICIO_MAP:
+            return servicio_lower
+
+        # Si es un nombre completo, convertir a código largo
+        if servicio in NOMBRE_SERVICIO_TO_CODIGO:
+            return NOMBRE_SERVICIO_TO_CODIGO[servicio]
+
+        # Si es código corto, buscar el código largo correspondiente
+        for codigo_largo, codigo_corto in CODIGO_SERVICIO_MAP.items():
+            if servicio == codigo_corto:
+                return codigo_largo
+
+        # Si no se encuentra en ningún mapeo, devolver en minúsculas
+        return servicio_lower
+
+    @staticmethod
     def puede_ver_paciente(user: Usuario, paciente_origen_servicio: Optional[str],
                           paciente_destino_servicio: Optional[str],
                           paciente_hospital_id: Optional[str]) -> bool:
@@ -198,25 +243,30 @@ class RBACService:
             if not user.servicio_id:
                 return True
 
+            # Normalizar servicios para comparación
+            servicio_usuario = RBACService.normalizar_servicio(user.servicio_id)
+            servicio_origen = RBACService.normalizar_servicio(paciente_origen_servicio)
+            servicio_destino = RBACService.normalizar_servicio(paciente_destino_servicio)
+
             # Casos especiales según especificación
-            if user.servicio_id == "urgencias":
+            if servicio_usuario == "urgencias":
                 # Urgencias: Solo pacientes con origen en Urgencias
-                return paciente_origen_servicio == "urgencias"
+                return servicio_origen == "urgencias"
 
-            elif user.servicio_id == "ambulatorio":
+            elif servicio_usuario == "ambulatorio":
                 # Ambulatorios: Solo pacientes con origen en Ambulatorio
-                return paciente_origen_servicio == "ambulatorio"
+                return servicio_origen == "ambulatorio"
 
-            elif user.servicio_id == "obstetricia":
+            elif servicio_usuario == "obstetricia":
                 # Obstetricia: Solo pacientes de Obstetricia
-                return (paciente_origen_servicio == "obstetricia" or
-                        paciente_destino_servicio == "obstetricia")
+                return (servicio_origen == "obstetricia" or
+                        servicio_destino == "obstetricia")
 
             else:
                 # Medicina/Cirugía/UCI/UTI/Pedia/Medicoquirúrgico:
                 # Solo pacientes con origen o destino en su servicio
-                return (paciente_origen_servicio == user.servicio_id or
-                        paciente_destino_servicio == user.servicio_id)
+                return (servicio_origen == servicio_usuario or
+                        servicio_destino == servicio_usuario)
 
         # Por defecto, permitir acceso
         return True

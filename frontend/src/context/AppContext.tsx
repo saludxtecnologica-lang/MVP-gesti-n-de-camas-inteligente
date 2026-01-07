@@ -339,35 +339,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ============================================
-  // CARGA INICIAL
-  // ============================================
-  useEffect(() => {
-    async function cargarDatosIniciales() {
-      try {
-        setLoading(true);
-        const [hospitalesData, configData] = await Promise.all([
-          api.getHospitales(),
-          api.getConfiguracion()
-        ]);
-        
-        setHospitales(hospitalesData);
-        setConfiguracion(configData);
-        
-        if (hospitalesData.length > 0) {
-          setHospitalSeleccionado(hospitalesData[0]);
-        }
-      } catch (error) {
-        console.error('Error al cargar datos iniciales:', error);
-        showAlert('error', 'Error al conectar con el servidor');
-      } finally {
-        setLoading(false);
-      }
-    }
-    
-    cargarDatosIniciales();
-  }, [showAlert]);
-
-  // ============================================
   // RECARGAR AL CAMBIAR HOSPITAL
   // ============================================
   useEffect(() => {
@@ -377,21 +348,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [hospitalSeleccionado, recargarTodo]);
 
   // ============================================
-  // LIMPIAR ESTADO AL CERRAR SESIÓN
+  // RECARGAR DATOS AL CAMBIAR DE USUARIO
   // ============================================
   useEffect(() => {
-    // Cuando el usuario cierra sesión (user se vuelve null), limpiar todo el estado
-    if (!user) {
-      console.log('[AppContext] Usuario desconectado, limpiando estado...');
-      setHospitales([]);
-      setHospitalSeleccionado(null);
-      setCamas([]);
-      setListaEspera([]);
-      setDerivados([]);
-      setServicioSeleccionadoId(null);
-      setDataVersion(0);
+    async function cargarDatosDeUsuario() {
+      if (!user) {
+        // Usuario desconectado, limpiar todo el estado
+        console.log('[AppContext] Usuario desconectado, limpiando estado...');
+        setHospitales([]);
+        setHospitalSeleccionado(null);
+        setCamas([]);
+        setListaEspera([]);
+        setDerivados([]);
+        setServicioSeleccionadoId(null);
+        setDataVersion(0);
+      } else {
+        // Usuario conectado, recargar datos
+        console.log('[AppContext] Usuario conectado, cargando datos...');
+        try {
+          setLoading(true);
+          const [hospitalesData, configData] = await Promise.all([
+            api.getHospitales(),
+            api.getConfiguracion()
+          ]);
+
+          setHospitales(hospitalesData);
+          setConfiguracion(configData);
+
+          if (hospitalesData.length > 0) {
+            setHospitalSeleccionado(hospitalesData[0]);
+          }
+        } catch (error) {
+          console.error('Error al cargar datos de usuario:', error);
+          showAlert('error', 'Error al conectar con el servidor');
+        } finally {
+          setLoading(false);
+        }
+      }
     }
-  }, [user]);
+
+    cargarDatosDeUsuario();
+  }, [user, showAlert]);
 
   // ============================================
   // VALOR DEL CONTEXTO
