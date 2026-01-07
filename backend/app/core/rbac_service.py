@@ -375,17 +375,17 @@ class RBACService:
             # Casos especiales según el servicio
             if user.servicio_id == "urgencias":
                 # Solo pacientes con origen en Urgencias
-                return query.where(tabla.servicio_origen == "urgencias")
+                return query.where(tabla.origen_servicio_nombre == "urgencias")
 
             elif user.servicio_id == "ambulatorio":
                 # Solo pacientes con origen en Ambulatorio
-                return query.where(tabla.servicio_origen == "ambulatorio")
+                return query.where(tabla.origen_servicio_nombre == "ambulatorio")
 
             else:
                 # Pacientes con origen O destino en su servicio
                 return query.where(
                     or_(
-                        tabla.servicio_origen == user.servicio_id,
+                        tabla.origen_servicio_nombre == user.servicio_id,
                         tabla.servicio_destino == user.servicio_id
                     )
                 )

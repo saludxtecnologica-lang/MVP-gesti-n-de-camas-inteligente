@@ -328,7 +328,7 @@ def obtener_paciente(
     if current_user.servicio_id:
         puede_ver = rbac_service.puede_ver_paciente(
             current_user,
-            paciente.servicio_origen if hasattr(paciente, 'servicio_origen') else None,
+            paciente.origen_servicio_nombre if hasattr(paciente, 'origen_servicio_nombre') else None,
             paciente.servicio_destino if hasattr(paciente, 'servicio_destino') else None,
             paciente.hospital_id
         )
@@ -376,11 +376,11 @@ async def actualizar_paciente(
     DERIVACIÓN:
     Si se especifica derivacion_hospital_destino_id, se solicita la derivación.
     """
-    # Verificar que solo MEDICO puede reevaluar
-    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+    # Verificar que solo MEDICO, ENFERMERA (incluye matrones) pueden reevaluar
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.ENFERMERA, RolEnum.PROGRAMADOR]:
         raise HTTPException(
             status_code=403,
-            detail="Solo los médicos pueden reevaluar pacientes"
+            detail="Solo los médicos, enfermeras y matrones pueden reevaluar pacientes"
         )
 
     # Verificar permiso PACIENTE_REEVALUAR
@@ -422,7 +422,7 @@ async def actualizar_paciente(
     if current_user.servicio_id:
         puede_ver = rbac_service.puede_ver_paciente(
             current_user,
-            paciente.servicio_origen if hasattr(paciente, 'servicio_origen') else None,
+            paciente.origen_servicio_nombre if hasattr(paciente, 'origen_servicio_nombre') else None,
             paciente.servicio_destino if hasattr(paciente, 'servicio_destino') else None,
             paciente.hospital_id
         )
