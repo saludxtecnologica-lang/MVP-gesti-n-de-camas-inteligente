@@ -34,6 +34,8 @@ interface CamaDisponibleRed {
   sala_id: string;
   sala_numero: number;
   sala_es_individual: boolean;
+  estado: string;  // Estado de la cama
+  disponible: boolean;  // True si está libre, False si está ocupada
 }
 
 interface ModalBusquedaCamaRedProps {
@@ -219,10 +221,11 @@ export function ModalBusquedaCamaRed({
         }
       }
       
-      // Solicitar derivación
+      // Solicitar derivación (con cama reservada si está disponible)
       await api.solicitarDerivacion(paciente.id, {
         hospital_destino_id: camaSeleccionada.hospital_id,
-        motivo: motivoDerivacion
+        motivo: motivoDerivacion,
+        cama_reservada_id: camaSeleccionada.disponible ? camaSeleccionada.cama_id : undefined
       });
       
       showAlert('success', `Derivación solicitada a ${camaSeleccionada.hospital_nombre}`);
@@ -313,69 +316,148 @@ export function ModalBusquedaCamaRed({
         );
         
       case 'resultados':
+        const camasLibres = camasEncontradas.filter(c => c.disponible);
+        const camasOcupadas = camasEncontradas.filter(c => !c.disponible);
+
         return (
           <div className="space-y-4">
             {/* Header */}
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-              <CheckCircle className="w-6 h-6 text-green-500" />
-              <div>
-                <h3 className="font-semibold text-green-800">Camas encontradas</h3>
-                <p className="text-sm text-green-700">
-                  Se encontraron {camasEncontradas.length} cama(s) disponible(s) en la red
-                </p>
+            {camasLibres.length > 0 ? (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+                <CheckCircle className="w-6 h-6 text-green-500" />
+                <div>
+                  <h3 className="font-semibold text-green-800">Camas encontradas</h3>
+                  <p className="text-sm text-green-700">
+                    {camasLibres.length} cama(s) libre(s) y {camasOcupadas.length} ocupada(s)
+                  </p>
+                </div>
               </div>
-            </div>
-            
-            {/* Lista de camas */}
-            <div className="max-h-80 overflow-y-auto space-y-2">
-              {camasEncontradas.map((cama) => (
-                <div 
-                  key={cama.cama_id}
-                  className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Building2 className="w-4 h-4 text-blue-600" />
-                        <span className="font-semibold text-gray-800">
-                          {cama.hospital_nombre}
-                        </span>
-                        <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
-                          {cama.hospital_codigo}
-                        </span>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div className="flex items-center gap-1.5 text-gray-600">
-                          <Bed className="w-3.5 h-3.5" />
-                          <span>Cama: {cama.cama_identificador}</span>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+                <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-amber-800">
+                    Todas las camas están ocupadas
+                  </h3>
+                  <p className="text-sm text-amber-700 mt-1">
+                    Se encontraron {camasOcupadas.length} cama(s) del tipo compatible en la red,
+                    pero todas están ocupadas. Puede derivar al paciente y quedará en lista de espera
+                    hasta que se libere una cama.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Lista de camas libres */}
+            {camasLibres.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-gray-700">Camas disponibles</h4>
+                <div className="max-h-60 overflow-y-auto space-y-2">
+                  {camasLibres.map((cama) => (
+                    <div
+                      key={cama.cama_id}
+                      className="border border-green-200 bg-green-50 rounded-lg p-4 hover:bg-green-100 transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Building2 className="w-4 h-4 text-green-700" />
+                            <span className="font-semibold text-gray-800">
+                              {cama.hospital_nombre}
+                            </span>
+                            <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded font-medium">
+                              LIBRE
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="flex items-center gap-1.5 text-gray-600">
+                              <Bed className="w-3.5 h-3.5" />
+                              <span>Cama: {cama.cama_identificador}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-gray-600">
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span>Servicio: {cama.servicio_nombre}</span>
+                            </div>
+                            <div className="text-gray-500">
+                              Tipo: {cama.servicio_tipo}
+                            </div>
+                            <div className="text-gray-500">
+                              Sala: {cama.sala_es_individual ? 'Individual' : 'Compartida'}
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5 text-gray-600">
-                          <MapPin className="w-3.5 h-3.5" />
-                          <span>Servicio: {cama.servicio_nombre}</span>
-                        </div>
-                        <div className="text-gray-500">
-                          Tipo: {cama.servicio_tipo}
-                        </div>
-                        <div className="text-gray-500">
-                          Sala: {cama.sala_es_individual ? 'Individual' : 'Compartida'}
-                        </div>
+
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => seleccionarCama(cama)}
+                          icon={<Send className="w-3.5 h-3.5" />}
+                        >
+                          Reservar y derivar
+                        </Button>
                       </div>
                     </div>
-                    
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => seleccionarCama(cama)}
-                      icon={<Send className="w-3.5 h-3.5" />}
-                    >
-                      Iniciar derivación
-                    </Button>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            
+              </div>
+            )}
+
+            {/* Lista de camas ocupadas */}
+            {camasOcupadas.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-gray-700">Camas ocupadas</h4>
+                <div className="max-h-60 overflow-y-auto space-y-2">
+                  {camasOcupadas.map((cama) => (
+                    <div
+                      key={cama.cama_id}
+                      className="border border-gray-300 bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Building2 className="w-4 h-4 text-gray-600" />
+                            <span className="font-semibold text-gray-800">
+                              {cama.hospital_nombre}
+                            </span>
+                            <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded font-medium">
+                              OCUPADA
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="flex items-center gap-1.5 text-gray-600">
+                              <Bed className="w-3.5 h-3.5" />
+                              <span>Cama: {cama.cama_identificador}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-gray-600">
+                              <MapPin className="w-3.5 h-3.5" />
+                              <span>Servicio: {cama.servicio_nombre}</span>
+                            </div>
+                            <div className="text-gray-500">
+                              Tipo: {cama.servicio_tipo}
+                            </div>
+                            <div className="text-gray-500">
+                              Sala: {cama.sala_es_individual ? 'Individual' : 'Compartida'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => seleccionarCama(cama)}
+                          icon={<Send className="w-3.5 h-3.5" />}
+                        >
+                          Derivar (lista espera)
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Botón cancelar */}
             <div className="flex justify-end pt-4 border-t">
               <Button variant="secondary" onClick={cancelarYCerrar}>
@@ -427,11 +509,11 @@ export function ModalBusquedaCamaRed({
             </button>
             
             {/* Info hospital destino */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-semibold text-blue-800 mb-2">
+            <div className={`rounded-lg p-4 ${camaSeleccionada.disponible ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+              <h3 className={`font-semibold mb-2 ${camaSeleccionada.disponible ? 'text-green-800' : 'text-amber-800'}`}>
                 Derivar a:
               </h3>
-              <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="grid grid-cols-2 gap-2 text-sm mb-2">
                 <div className="flex items-center gap-1.5">
                   <Building2 className="w-4 h-4 text-blue-600" />
                   <span className="font-medium">{camaSeleccionada.hospital_nombre}</span>
@@ -439,6 +521,9 @@ export function ModalBusquedaCamaRed({
                 <div className="flex items-center gap-1.5">
                   <Bed className="w-4 h-4 text-blue-600" />
                   <span>Cama {camaSeleccionada.cama_identificador}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${camaSeleccionada.disponible ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-700'}`}>
+                    {camaSeleccionada.disponible ? 'LIBRE' : 'OCUPADA'}
+                  </span>
                 </div>
                 <div className="text-gray-600">
                   Servicio: {camaSeleccionada.servicio_nombre}
@@ -447,6 +532,28 @@ export function ModalBusquedaCamaRed({
                   Tipo: {camaSeleccionada.servicio_tipo}
                 </div>
               </div>
+              {!camaSeleccionada.disponible && (
+                <div className="mt-3 p-3 bg-amber-100 rounded-lg border border-amber-300">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-800">
+                      <strong>Nota:</strong> Esta cama está ocupada. Si la derivación es aceptada,
+                      el paciente quedará en lista de espera hasta que se asigne una cama según su prioridad.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {camaSeleccionada.disponible && (
+                <div className="mt-3 p-3 bg-green-100 rounded-lg border border-green-300">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-green-800">
+                      <strong>Cama reservada:</strong> Si la derivación es aceptada,
+                      el paciente será asignado automáticamente a esta cama.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
             
             {/* Formulario */}

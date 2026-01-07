@@ -86,6 +86,10 @@ class EstadoCamaEnum(str, Enum):
     # NUEVO ESTADO: PACIENTE FALLECIDO
     # ============================================
     FALLECIDO = "fallecido"
+    # ============================================
+    # NUEVO ESTADO: CAMA RESERVADA PARA DERIVACIÓN
+    # ============================================
+    RESERVADA = "reservada"
 
 
 class EstadoListaEsperaEnum(str, Enum):

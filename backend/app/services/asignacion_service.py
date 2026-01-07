@@ -94,6 +94,8 @@ class CamaDisponibleRed:
     sala_id: str
     sala_numero: int
     sala_es_individual: bool
+    estado: str  # Estado de la cama (libre, ocupada, reservada, etc.)
+    disponible: bool  # True si está libre, False si está ocupada
 
 
 @dataclass
@@ -488,31 +490,55 @@ class AsignacionService:
     ) -> ResultadoBusquedaRed:
         """
         Busca camas compatibles en toda la red hospitalaria.
-        
+
+        ACTUALIZADO v5.0:
+        - Ahora busca TODAS las camas del tipo compatible (libres Y ocupadas)
+        - Incluye información de disponibilidad
+        - Ordena: libres primero, luego ocupadas
+
         Args:
             paciente_id: ID del paciente
             hospital_origen_id: Hospital del que excluir
-        
+
         Returns:
             ResultadoBusquedaRed con las camas encontradas
         """
         paciente = self.paciente_repo.obtener_por_id(paciente_id)
         if not paciente:
             raise PacienteNotFoundError(paciente_id)
-        
+
+        # Calcular complejidad del paciente para obtener servicios compatibles
+        complejidad = self.calcular_complejidad(paciente)
+        servicios_compatibles = MAPEO_COMPLEJIDAD_SERVICIO.get(complejidad, [])
+
         # Obtener todos los hospitales excepto el de origen
         query = select(Hospital).where(Hospital.id != hospital_origen_id)
         hospitales = self.session.exec(query).all()
-        
-        camas_encontradas: List[CamaDisponibleRed] = []
-        
+
+        camas_libres: List[CamaDisponibleRed] = []
+        camas_ocupadas: List[CamaDisponibleRed] = []
+
         for hospital in hospitales:
-            camas_libres = self.cama_repo.obtener_libres_por_hospital(hospital.id)
-            
-            for cama in camas_libres:
+            # Obtener TODAS las camas de servicios compatibles (no solo libres)
+            query_camas = (
+                select(Cama)
+                .join(Sala)
+                .join(Servicio)
+                .where(
+                    Servicio.hospital_id == hospital.id,
+                    Servicio.tipo.in_(servicios_compatibles)
+                )
+            )
+            todas_las_camas = self.session.exec(query_camas).all()
+
+            for cama in todas_las_camas:
+                # Verificar compatibilidad básica
                 if self._es_cama_compatible(cama, paciente):
                     servicio = cama.sala.servicio if cama.sala else None
-                    
+
+                    # Determinar si está disponible
+                    esta_libre = cama.estado == EstadoCamaEnum.LIBRE
+
                     cama_info = CamaDisponibleRed(
                         cama_id=cama.id,
                         cama_identificador=cama.identificador,
@@ -524,17 +550,34 @@ class AsignacionService:
                         servicio_tipo=servicio.tipo.value if servicio else "",
                         sala_id=cama.sala.id if cama.sala else "",
                         sala_numero=cama.sala.numero if cama.sala else 0,
-                        sala_es_individual=cama.sala.es_individual if cama.sala else False
+                        sala_es_individual=cama.sala.es_individual if cama.sala else False,
+                        estado=cama.estado.value if hasattr(cama.estado, 'value') else str(cama.estado),
+                        disponible=esta_libre
                     )
-                    camas_encontradas.append(cama_info)
-        
-        encontradas = len(camas_encontradas) > 0
-        mensaje = (
-            f"Se encontraron {len(camas_encontradas)} camas compatibles en la red"
-            if encontradas else
-            "No se encontraron camas compatibles en otros hospitales"
-        )
-        
+
+                    # Separar en libres y ocupadas
+                    if esta_libre:
+                        camas_libres.append(cama_info)
+                    else:
+                        camas_ocupadas.append(cama_info)
+
+        # Combinar: libres primero, luego ocupadas
+        camas_encontradas = camas_libres + camas_ocupadas
+
+        # Generar mensaje descriptivo
+        total_camas = len(camas_encontradas)
+        total_libres = len(camas_libres)
+        total_ocupadas = len(camas_ocupadas)
+
+        if total_camas == 0:
+            mensaje = "No se encontraron camas compatibles en la red hospitalaria"
+        elif total_libres > 0:
+            mensaje = f"Se encontraron {total_libres} cama(s) libre(s) y {total_ocupadas} ocupada(s) en la red"
+        else:
+            mensaje = f"Se encontraron {total_ocupadas} cama(s) del tipo compatible en la red, pero todas están ocupadas"
+
+        encontradas = total_camas > 0
+
         return ResultadoBusquedaRed(
             encontradas=encontradas,
             camas=camas_encontradas,

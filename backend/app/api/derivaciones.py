@@ -120,14 +120,15 @@ async def solicitar_derivacion(
             detail="No tienes permisos para solicitar derivaciones"
         )
     service = DerivacionService(session)
-    
+
     try:
         resultado = service.solicitar_derivacion(
             paciente_id,
             request.hospital_destino_id,
-            request.motivo
+            request.motivo,
+            cama_reservada_id=request.cama_reservada_id  # Pasar cama reservada si existe
         )
-        
+
         await manager.send_notification(
             {
                 "tipo": "derivacion_solicitada",
@@ -137,9 +138,9 @@ async def solicitar_derivacion(
             notification_type="info",
             hospital_id=request.hospital_destino_id
         )
-        
+
         return MessageResponse(success=True, message=resultado.mensaje)
-        
+
     except PacienteNotFoundError:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
     except Exception as e:
