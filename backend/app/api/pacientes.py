@@ -960,7 +960,9 @@ def buscar_camas_en_red_hospitalaria(
             "servicio_tipo": cama.servicio_tipo,
             "sala_id": cama.sala_id,
             "sala_numero": cama.sala_numero,
-            "sala_es_individual": cama.sala_es_individual
+            "sala_es_individual": cama.sala_es_individual,
+            "estado": cama.estado,  # AGREGADO: Estado de la cama
+            "disponible": cama.disponible  # AGREGADO: Si está disponible para reserva
         })
     
     return {
