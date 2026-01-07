@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode, useRef } from 'react';
-import type { 
-  Hospital, 
-  Cama, 
-  ConfiguracionSistema, 
-  ListaEsperaItem, 
+import type {
+  Hospital,
+  Cama,
+  ConfiguracionSistema,
+  ListaEsperaItem,
   DerivadoItem,
   AlertState,
   WebSocketEvent
@@ -11,6 +11,7 @@ import type {
 import * as api from '../services/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import { useAuth } from './AuthContext';
 
 // ============================================
 // TIPOS DEL CONTEXT
@@ -62,6 +63,9 @@ const AppContext = createContext<AppContextType | null>(null);
 // ============================================
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // Hook de autenticación
+  const { user } = useAuth();
+
   // Estado principal
   const [hospitales, setHospitales] = useState<Hospital[]>([]);
   const [hospitalSeleccionado, setHospitalSeleccionado] = useState<Hospital | null>(null);
@@ -371,6 +375,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       recargarTodo();
     }
   }, [hospitalSeleccionado, recargarTodo]);
+
+  // ============================================
+  // LIMPIAR ESTADO AL CERRAR SESIÓN
+  // ============================================
+  useEffect(() => {
+    // Cuando el usuario cierra sesión (user se vuelve null), limpiar todo el estado
+    if (!user) {
+      console.log('[AppContext] Usuario desconectado, limpiando estado...');
+      setHospitales([]);
+      setHospitalSeleccionado(null);
+      setCamas([]);
+      setListaEspera([]);
+      setDerivados([]);
+      setServicioSeleccionadoId(null);
+      setDataVersion(0);
+    }
+  }, [user]);
 
   // ============================================
   // VALOR DEL CONTEXTO

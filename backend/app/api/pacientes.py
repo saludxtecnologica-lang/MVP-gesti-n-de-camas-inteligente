@@ -38,6 +38,7 @@ from app.schemas.paciente import (
 from app.schemas.responses import MessageResponse
 from app.repositories.paciente_repo import PacienteRepository
 from app.repositories.cama_repo import CamaRepository
+from app.repositories.hospital_repo import HospitalRepository
 from app.services.asignacion_service import AsignacionService
 from app.services.prioridad_service import PrioridadService
 from app.services.derivacion_service import DerivacionService
@@ -305,11 +306,24 @@ def obtener_paciente(
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
     # Verificar acceso al hospital del paciente
-    if not rbac_service.puede_acceder_hospital(current_user, paciente.hospital_id):
-        raise HTTPException(
-            status_code=403,
-            detail="No tienes permisos para ver este paciente"
-        )
+    # Obtener el hospital para comparar por código (paciente.hospital_id es UUID)
+    hospital_repo = HospitalRepository(session)
+    hospital_paciente = hospital_repo.obtener_por_id(paciente.hospital_id)
+
+    if hospital_paciente:
+        # Comparar usando el código del hospital en lugar del UUID
+        if not rbac_service.puede_acceder_hospital(current_user, hospital_paciente.codigo):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para ver este paciente"
+            )
+    else:
+        # Fallback: usar UUID si no se encuentra el hospital
+        if not rbac_service.puede_acceder_hospital(current_user, paciente.hospital_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para ver este paciente"
+            )
 
     # Verificar acceso por servicio (si el usuario tiene servicio asignado)
     if current_user.servicio_id:
@@ -386,11 +400,24 @@ async def actualizar_paciente(
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
     # Verificar acceso al hospital del paciente
-    if not rbac_service.puede_acceder_hospital(current_user, paciente.hospital_id):
-        raise HTTPException(
-            status_code=403,
-            detail="No tienes permisos para modificar pacientes de este hospital"
-        )
+    # Obtener el hospital para comparar por código (paciente.hospital_id es UUID)
+    hospital_repo = HospitalRepository(session)
+    hospital_paciente = hospital_repo.obtener_por_id(paciente.hospital_id)
+
+    if hospital_paciente:
+        # Comparar usando el código del hospital en lugar del UUID
+        if not rbac_service.puede_acceder_hospital(current_user, hospital_paciente.codigo):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para modificar pacientes de este hospital"
+            )
+    else:
+        # Fallback: usar UUID si no se encuentra el hospital
+        if not rbac_service.puede_acceder_hospital(current_user, paciente.hospital_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para modificar pacientes de este hospital"
+            )
 
     # Verificar acceso por servicio
     if current_user.servicio_id:
