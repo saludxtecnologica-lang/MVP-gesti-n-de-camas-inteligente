@@ -8,6 +8,7 @@ ACTUALIZADO v3.0:
 """
 from typing import Optional, List, Tuple
 from sqlmodel import Session, select
+from sqlmodel.orm import selectinload
 from dataclasses import dataclass
 from datetime import datetime
 import json
@@ -307,20 +308,28 @@ class AsignacionService:
     def _es_cama_compatible(self, cama: Cama, paciente: Paciente) -> bool:
         """
         Verifica si una cama es compatible con un paciente.
-        
+
         INCLUYE verificación de tipo de enfermedad vs servicio.
         PROBLEMA 7: Embarazada de baja complejidad SIEMPRE va a obstetricia.
         """
+        logger.debug(f"=== Verificando compatibilidad de {cama.identificador} para {paciente.nombre} ===")
+
         sala = cama.sala
         if not sala:
+            logger.debug(f"Cama {cama.identificador}: Sin sala")
             return False
-        
+
         servicio = sala.servicio
         if not servicio:
+            logger.debug(f"Cama {cama.identificador}: Sin servicio")
             return False
-        
+
         tipo_servicio = servicio.tipo
         complejidad = self.calcular_complejidad(paciente)
+        logger.debug(
+            f"Cama {cama.identificador}: Servicio={tipo_servicio.value}, "
+            f"Complejidad paciente={complejidad.value}"
+        )
         
         # 1. VERIFICAR COMPLEJIDAD vs SERVICIO
         servicios_validos = MAPEO_COMPLEJIDAD_SERVICIO.get(complejidad, [])
@@ -523,6 +532,7 @@ class AsignacionService:
 
         for hospital in hospitales:
             # Obtener TODAS las camas de servicios compatibles (no solo libres)
+            # Cargar explícitamente las relaciones
             query_camas = (
                 select(Cama)
                 .join(Sala)
@@ -531,16 +541,30 @@ class AsignacionService:
                     Servicio.hospital_id == hospital.id,
                     Servicio.tipo.in_(servicios_compatibles)
                 )
+                .options(
+                    selectinload(Cama.sala).selectinload(Sala.servicio)
+                )
             )
             todas_las_camas = self.session.exec(query_camas).all()
 
             for cama in todas_las_camas:
+                # DEBUG: Log de cada cama encontrada
+                logger.debug(
+                    f"Evaluando cama {cama.identificador} en {hospital.nombre}, "
+                    f"estado: {cama.estado.value if hasattr(cama.estado, 'value') else cama.estado}"
+                )
+
                 # Verificar compatibilidad básica
                 if self._es_cama_compatible(cama, paciente):
                     servicio = cama.sala.servicio if cama.sala else None
 
                     # Determinar si está disponible
                     esta_libre = cama.estado == EstadoCamaEnum.LIBRE
+
+                    logger.debug(
+                        f"Cama {cama.identificador} es compatible. Esta libre: {esta_libre}, "
+                        f"Estado: {cama.estado.value if hasattr(cama.estado, 'value') else cama.estado}"
+                    )
 
                     cama_info = CamaDisponibleRed(
                         cama_id=cama.id,
@@ -563,6 +587,8 @@ class AsignacionService:
                         camas_libres.append(cama_info)
                     else:
                         camas_ocupadas.append(cama_info)
+                else:
+                    logger.debug(f"Cama {cama.identificador} NO es compatible")
 
         # Combinar: libres primero, luego ocupadas
         camas_encontradas = camas_libres + camas_ocupadas

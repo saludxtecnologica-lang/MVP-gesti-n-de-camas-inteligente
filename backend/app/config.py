@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     # ============================================
     # LOGGING
     # ============================================
-    LOG_LEVEL: str = "INFO"
+    LOG_LEVEL: str = "DEBUG"
     LOG_FORMAT: str = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 
     # ============================================
