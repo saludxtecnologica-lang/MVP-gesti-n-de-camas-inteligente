@@ -119,18 +119,18 @@ async def cancelar_traslado_desde_origen(
 ):
     """Cancela traslado desde la cama de origen."""
     service = TrasladoService(session)
-    
+
     try:
-        resultado = service.cancelar_traslado(paciente_id)
-        
+        resultado = service.cancelar_traslado_desde_origen(paciente_id)
+
         await manager.broadcast({
             "tipo": "traslado_cancelado_origen",
             "paciente_id": paciente_id,
             "reload": True
         })
-        
+
         return MessageResponse(success=True, message=resultado.mensaje)
-        
+
     except PacienteNotFoundError:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 

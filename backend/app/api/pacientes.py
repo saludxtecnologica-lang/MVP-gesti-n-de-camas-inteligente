@@ -44,7 +44,6 @@ from app.services.prioridad_service import PrioridadService
 from app.services.derivacion_service import DerivacionService
 from app.utils.helpers import crear_paciente_response
 from sqlmodel import select
-from app.services.prioridad_service import ColaPrioridad
 
 router = APIRouter()
 logger = logging.getLogger("gestion_camas.pacientes")
@@ -1037,12 +1036,14 @@ async def cancelar_busqueda_y_volver_a_cama(
     try:
         # Obtener la cama actual
         cama = session.exec(select(Cama).where(Cama.id == paciente.cama_id)).first()
-        
+
         # Remover de lista de espera
-        cola_prioridad = ColaPrioridad(session)
-        if cola_prioridad.esta_en_cola(paciente_id):
-            cola_prioridad.remover_paciente(paciente_id)
-            logger.info(f"Paciente {paciente_id} removido de lista de espera")
+        from app.services.prioridad_service import gestor_colas_global
+        if paciente.hospital_id:
+            cola = gestor_colas_global.obtener_cola(paciente.hospital_id)
+            if cola.contiene(paciente_id):
+                cola.remover(paciente_id)
+                logger.info(f"Paciente {paciente_id} removido de lista de espera")
         
         # Si tenía cama destino asignada, liberarla
         if paciente.cama_destino_id:
@@ -1135,13 +1136,15 @@ async def eliminar_paciente_sin_cama(
         )
     
     nombre_paciente = paciente.nombre  # Guardar para el mensaje
-    
+
     try:
         # Remover de lista de espera si está
-        cola_prioridad = ColaPrioridad(session)
-        if cola_prioridad.esta_en_cola(paciente_id):
-            cola_prioridad.remover_paciente(paciente_id)
-            logger.info(f"Paciente {paciente_id} removido de lista de espera")
+        from app.services.prioridad_service import gestor_colas_global
+        if paciente.hospital_id:
+            cola = gestor_colas_global.obtener_cola(paciente.hospital_id)
+            if cola.contiene(paciente_id):
+                cola.remover(paciente_id)
+                logger.info(f"Paciente {paciente_id} removido de lista de espera")
         
         # Si tenía cama destino asignada (aunque no debería), liberarla
         if paciente.cama_destino_id:
