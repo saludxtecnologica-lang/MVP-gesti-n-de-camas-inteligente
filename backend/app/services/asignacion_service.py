@@ -8,7 +8,7 @@ ACTUALIZADO v3.0:
 """
 from typing import Optional, List, Tuple
 from sqlmodel import Session, select
-from sqlmodel.orm import selectinload
+from sqlalchemy.orm import selectinload
 from dataclasses import dataclass
 from datetime import datetime
 import json
