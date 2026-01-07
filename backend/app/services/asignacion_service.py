@@ -343,10 +343,13 @@ class AsignacionService:
             if paciente.sexo != SexoEnum.MUJER:
                 logger.debug(f"Cama {cama.identificador}: obstetricia solo acepta mujeres")
                 return False
-        
-        if sala.sexo_asignado and sala.sexo_asignado != paciente.sexo:
-            logger.debug(f"Cama {cama.identificador}: sexo de sala incompatible")
-            return False
+
+        # Solo verificar sexo_asignado para camas LIBRES
+        # Para camas ocupadas, el sexo puede cambiar cuando se liberen
+        if cama.estado == EstadoCamaEnum.LIBRE:
+            if sala.sexo_asignado and sala.sexo_asignado != paciente.sexo:
+                logger.debug(f"Cama {cama.identificador}: sexo de sala incompatible")
+                return False
         
         # 4. VERIFICAR AISLAMIENTO vs TIPO DE SALA
         requiere_individual = paciente.tipo_aislamiento in AISLAMIENTOS_SALA_INDIVIDUAL
