@@ -100,6 +100,7 @@ class Paciente(SQLModel, table=True):
     cama_id: Optional[str] = Field(default=None, foreign_key="cama.id", index=True)
     cama_destino_id: Optional[str] = Field(default=None, foreign_key="cama.id")
     cama_origen_derivacion_id: Optional[str] = Field(default=None)
+    cama_reservada_derivacion_id: Optional[str] = Field(default=None, foreign_key="cama.id")  # Cama reservada para derivación
     
      # ============================================
     # ORIGEN Y DESTINO (para priorización)

@@ -217,21 +217,38 @@ class DerivacionService:
             )
         
         # Verificar aislamientos específicos
-        aislamientos = paciente.get_requerimientos_lista('aislamientos')
-        for aislamiento in aislamientos:
-            if aislamiento in AISLAMIENTOS_SALA_INDIVIDUAL:
-                # Verificar si hay salas individuales
-                query = select(Sala).join(Servicio).where(
+        if paciente.tipo_aislamiento in AISLAMIENTOS_SALA_INDIVIDUAL:
+            # Obtener servicios compatibles con la complejidad del paciente
+            servicios_compatibles = MAPEO_COMPLEJIDAD_SERVICIO.get(complejidad_paciente, [])
+
+            # Verificar si hay salas individuales en servicios compatibles
+            query = select(Sala).join(Servicio).where(
+                Servicio.hospital_id == hospital_destino_id,
+                Servicio.tipo.in_(servicios_compatibles),
+                Sala.es_individual == True
+            )
+            salas_individuales_compatibles = self.session.exec(query).all()
+
+            if not salas_individuales_compatibles:
+                # Verificar si el problema es falta de salas individuales o falta de servicios
+                query_cualquier_sala = select(Sala).join(Servicio).where(
                     Servicio.hospital_id == hospital_destino_id,
                     Sala.es_individual == True
                 )
-                salas_individuales = self.session.exec(query).all()
-                if not salas_individuales:
+                cualquier_sala_individual = self.session.exec(query_cualquier_sala).all()
+
+                if not cualquier_sala_individual:
                     motivos_rechazo.append(
                         f"El hospital destino no tiene salas individuales "
-                        f"requeridas para aislamiento: {aislamiento}"
+                        f"requeridas para aislamiento {paciente.tipo_aislamiento.value}"
                     )
-                break
+                else:
+                    servicios_nombres = [s.value for s in servicios_compatibles]
+                    motivos_rechazo.append(
+                        f"El hospital destino no tiene salas individuales en servicios compatibles "
+                        f"({', '.join(servicios_nombres)}) para paciente con aislamiento "
+                        f"{paciente.tipo_aislamiento.value} y complejidad {complejidad_paciente.value}"
+                    )
         
         es_viable = len(motivos_rechazo) == 0
         
@@ -251,31 +268,36 @@ class DerivacionService:
         paciente_id: str,
         hospital_destino_id: str,
         motivo: str,
-        documento_id: Optional[str] = None
+        documento_id: Optional[str] = None,
+        cama_reservada_id: Optional[str] = None
     ) -> ResultadoDerivacion:
         """
         Solicita una derivación a otro hospital.
-        
+
         PROBLEMA 5: Si el paciente está en lista de espera sin cama,
         se le remueve de la lista de espera.
-        
+
+        NUEVO v5.0: Si se proporciona cama_reservada_id, se reserva la cama
+        para el paciente derivado.
+
         Args:
             paciente_id: ID del paciente
             hospital_destino_id: ID del hospital destino
             motivo: Motivo de la derivación
             documento_id: ID del documento adjunto (opcional)
-        
+            cama_reservada_id: ID de la cama a reservar (opcional)
+
         Returns:
             Resultado de la solicitud
         """
         paciente = self.paciente_repo.obtener_por_id(paciente_id)
         if not paciente:
             raise PacienteNotFoundError(paciente_id)
-        
+
         hospital_destino = self.hospital_repo.obtener_por_id(hospital_destino_id)
         if not hospital_destino:
             raise HospitalNotFoundError(hospital_destino_id)
-        
+
         # Verificar viabilidad
         verificacion = self.verificar_viabilidad_derivacion(paciente_id, hospital_destino_id)
         if not verificacion.es_viable:
@@ -284,10 +306,10 @@ class DerivacionService:
                 mensaje="; ".join(verificacion.motivos_rechazo),
                 paciente_id=paciente_id
             )
-        
+
         # Guardar cama de origen si tiene
         cama_origen_id = paciente.cama_id
-        
+
         # Actualizar cama origen si tiene
         if cama_origen_id:
             cama_origen = self.cama_repo.obtener_por_id(cama_origen_id)
@@ -297,7 +319,31 @@ class DerivacionService:
                 cama_origen.paciente_derivado_id = paciente.id
                 cama_origen.estado_updated_at = datetime.utcnow()
                 self.session.add(cama_origen)
-        
+
+        # ============================================
+        # NUEVO v5.0: RESERVAR CAMA SI SE PROPORCIONA
+        # ============================================
+        if cama_reservada_id:
+            cama_reservada = self.cama_repo.obtener_por_id(cama_reservada_id)
+            if cama_reservada:
+                # Verificar que la cama esté libre
+                if cama_reservada.estado != EstadoCamaEnum.LIBRE:
+                    raise ValidationError(f"La cama {cama_reservada.identificador} no está disponible para reserva")
+
+                # Reservar la cama
+                cama_reservada.estado = EstadoCamaEnum.RESERVADA
+                cama_reservada.mensaje_estado = f"Reservada para {paciente.nombre} (derivación pendiente)"
+                cama_reservada.paciente_derivado_id = paciente.id
+                cama_reservada.estado_updated_at = datetime.utcnow()
+                self.session.add(cama_reservada)
+
+                # Guardar referencia en el paciente
+                paciente.cama_reservada_derivacion_id = cama_reservada_id
+
+                logger.info(
+                    f"Cama {cama_reservada.identificador} reservada para derivación de {paciente.nombre}"
+                )
+
         # PROBLEMA 5: Si está en lista de espera, remover
         if paciente.en_lista_espera:
             from app.services.prioridad_service import gestor_colas_global
@@ -305,27 +351,31 @@ class DerivacionService:
             cola.remover(paciente.id)
             paciente.en_lista_espera = False
             paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-        
+
         # Actualizar paciente
         paciente.derivacion_estado = "pendiente"
         paciente.derivacion_hospital_destino_id = hospital_destino_id
         paciente.derivacion_motivo = motivo
         paciente.cama_origen_derivacion_id = cama_origen_id
         paciente.timestamp_lista_espera = datetime.utcnow()
-        
+
         if documento_id:
             paciente.documento_derivacion_id = documento_id
-        
+
         self.session.add(paciente)
         self.session.commit()
-        
+
+        mensaje_resultado = f"Derivación solicitada a {hospital_destino.nombre}"
+        if cama_reservada_id:
+            mensaje_resultado += f" con cama reservada"
+
         logger.info(
             f"Derivación solicitada: {paciente.nombre} -> {hospital_destino.nombre}"
         )
-        
+
         return ResultadoDerivacion(
             exito=True,
-            mensaje=f"Derivación solicitada a {hospital_destino.nombre}",
+            mensaje=mensaje_resultado,
             paciente_id=paciente_id,
             hospital_destino_id=hospital_destino_id
         )
@@ -337,22 +387,25 @@ class DerivacionService:
     def aceptar_derivacion(self, paciente_id: str) -> ResultadoDerivacion:
         """
         Acepta una derivación pendiente.
-        El paciente pasa a lista de espera del hospital destino.
-        
+
+        ACTUALIZADO v5.0:
+        - Si hay cama reservada, asigna automáticamente al paciente
+        - Si NO hay cama reservada, paciente va a lista de espera
+
         ACTUALIZADO TTS: Emite evento con datos para notificación audible.
         El mensaje se reproduce SOLO en el servicio de origen del hospital de origen.
         """
         paciente = self.paciente_repo.obtener_por_id(paciente_id)
         if not paciente:
             raise PacienteNotFoundError(paciente_id)
-        
+
         if paciente.derivacion_estado != "pendiente":
             raise ValidationError("La derivación no está pendiente")
-        
+
         hospital_destino = self.hospital_repo.obtener_por_id(
             paciente.derivacion_hospital_destino_id
         )
-        
+
         # ============================================
         # GUARDAR INFO PARA TTS ANTES DE MODIFICAR
         # ============================================
@@ -361,12 +414,12 @@ class DerivacionService:
         cama_origen_identificador = None
         hospital_origen_id = paciente.hospital_id
         hospital_origen_nombre = None
-        
+
         # Obtener hospital de origen
         hospital_origen = self.hospital_repo.obtener_por_id(hospital_origen_id)
         if hospital_origen:
             hospital_origen_nombre = hospital_origen.nombre
-        
+
         # Obtener info de cama origen
         if paciente.cama_origen_derivacion_id:
             cama_origen = self.cama_repo.obtener_por_id(paciente.cama_origen_derivacion_id)
@@ -375,7 +428,7 @@ class DerivacionService:
                 if cama_origen.sala and cama_origen.sala.servicio:
                     servicio_origen_id = cama_origen.sala.servicio.nombre  # Usamos nombre como ID
                     servicio_origen_nombre = cama_origen.sala.servicio.nombre
-        
+
         # Actualizar cama origen
         if paciente.cama_origen_derivacion_id:
             cama_origen = self.cama_repo.obtener_por_id(paciente.cama_origen_derivacion_id)
@@ -384,31 +437,71 @@ class DerivacionService:
                 cama_origen.mensaje_estado = f"Derivación aceptada por {hospital_destino.nombre if hospital_destino else 'destino'}"
                 cama_origen.estado_updated_at = datetime.utcnow()
                 self.session.add(cama_origen)
-        
+
         # Cambiar hospital del paciente
         paciente.hospital_id = paciente.derivacion_hospital_destino_id
         paciente.derivacion_estado = "aceptada"
         paciente.tipo_paciente = TipoPacienteEnum.DERIVADO
-        
-        # Agregar a lista de espera del hospital destino
-        from app.services.prioridad_service import PrioridadService, gestor_colas_global
-        prioridad_service = PrioridadService(self.session)
-        prioridad = prioridad_service.calcular_prioridad(paciente)
-        
-        paciente.en_lista_espera = True
-        paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-        paciente.prioridad_calculada = prioridad
-        paciente.timestamp_lista_espera = datetime.utcnow()
-        paciente.cama_id = None  # Ya no tiene cama asignada en el sistema destino
-        
-        cola = gestor_colas_global.obtener_cola(paciente.hospital_id)
-        cola.agregar(paciente.id, prioridad)
-        
+
+        # ============================================
+        # NUEVO v5.0: VERIFICAR SI HAY CAMA RESERVADA
+        # ============================================
+        tiene_cama_reservada = paciente.cama_reservada_derivacion_id is not None
+        mensaje_resultado = ""
+
+        if tiene_cama_reservada:
+            # FLUJO CON CAMA RESERVADA: Asignación automática
+            cama_reservada = self.cama_repo.obtener_por_id(paciente.cama_reservada_derivacion_id)
+            if cama_reservada:
+                # Cambiar estado de cama a TRASLADO_ENTRANTE
+                cama_reservada.estado = EstadoCamaEnum.TRASLADO_ENTRANTE
+                cama_reservada.mensaje_estado = f"Esperando a {paciente.nombre} (derivación aceptada)"
+                cama_reservada.estado_updated_at = datetime.utcnow()
+                self.session.add(cama_reservada)
+
+                # Asignar cama destino al paciente
+                paciente.cama_destino_id = paciente.cama_reservada_derivacion_id
+                paciente.estado_lista_espera = EstadoListaEsperaEnum.ASIGNADO
+                paciente.en_lista_espera = False  # NO va a lista de espera
+                paciente.timestamp_lista_espera = datetime.utcnow()
+
+                # Guardar servicio destino
+                if cama_reservada.sala and cama_reservada.sala.servicio:
+                    paciente.servicio_destino = cama_reservada.sala.servicio.nombre
+
+                mensaje_resultado = f"Derivación aceptada - paciente asignado a cama {cama_reservada.identificador}"
+                logger.info(
+                    f"Derivación con cama reservada aceptada: {paciente.nombre} → "
+                    f"cama {cama_reservada.identificador}"
+                )
+            else:
+                logger.warning(
+                    f"Cama reservada {paciente.cama_reservada_derivacion_id} no encontrada, "
+                    f"paciente irá a lista de espera"
+                )
+                tiene_cama_reservada = False
+
+        if not tiene_cama_reservada:
+            # FLUJO SIN CAMA RESERVADA: Lista de espera
+            from app.services.prioridad_service import PrioridadService, gestor_colas_global
+            prioridad_service = PrioridadService(self.session)
+            prioridad = prioridad_service.calcular_prioridad(paciente)
+
+            paciente.en_lista_espera = True
+            paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
+            paciente.prioridad_calculada = prioridad
+            paciente.timestamp_lista_espera = datetime.utcnow()
+            paciente.cama_id = None  # Ya no tiene cama asignada en el sistema destino
+
+            cola = gestor_colas_global.obtener_cola(paciente.hospital_id)
+            cola.agregar(paciente.id, prioridad)
+
+            mensaje_resultado = "Derivación aceptada - paciente en lista de espera"
+            logger.info(f"Derivación aceptada (sin cama reservada): {paciente.nombre}")
+
         self.session.add(paciente)
         self.session.commit()
-        
-        logger.info(f"Derivación aceptada: {paciente.nombre}")
-        
+
         # ============================================
         # BROADCAST TTS
         # ============================================
@@ -425,7 +518,7 @@ class DerivacionService:
                 paciente_id=str(paciente.id),
                 derivacion_id=str(paciente.id)  # Usamos paciente_id como referencia
             )
-            
+
             # Broadcast asíncrono
             try:
                 loop = asyncio.get_event_loop()
@@ -433,7 +526,7 @@ class DerivacionService:
             except RuntimeError:
                 # Si no hay event loop, crear uno nuevo
                 asyncio.run(manager.broadcast(evento_tts))
-                
+
             logger.info(f"Evento TTS de derivación aceptada emitido")
         except Exception as e:
             logger.warning(f"Error emitiendo evento TTS: {e}")
@@ -448,10 +541,10 @@ class DerivacionService:
                 }))
             except:
                 pass
-        
+
         return ResultadoDerivacion(
             exito=True,
-            mensaje="Derivación aceptada - paciente en lista de espera",
+            mensaje=mensaje_resultado,
             paciente_id=paciente_id
         )
     
@@ -462,28 +555,47 @@ class DerivacionService:
     ) -> ResultadoDerivacion:
         """
         Rechaza una derivación pendiente.
-        
+
         PROBLEMA 5: Si el paciente no tiene cama, vuelve a lista de espera
         con un boost de prioridad.
-        
+
+        NUEVO v5.0: Libera la cama reservada si existe.
+
         Args:
             paciente_id: ID del paciente
             motivo_rechazo: Motivo del rechazo
-        
+
         Returns:
             ResultadoDerivacion
         """
         paciente = self.paciente_repo.obtener_por_id(paciente_id)
         if not paciente:
             raise PacienteNotFoundError(paciente_id)
-        
+
         if paciente.derivacion_estado != "pendiente":
             raise ValidationError("La derivación no está pendiente")
-        
+
         # Guardar info antes de limpiar
         tenia_cama_origen = paciente.cama_origen_derivacion_id is not None
         hospital_origen_id = None
-        
+
+        # ============================================
+        # NUEVO v5.0: LIBERAR CAMA RESERVADA SI EXISTE
+        # ============================================
+        if paciente.cama_reservada_derivacion_id:
+            cama_reservada = self.cama_repo.obtener_por_id(paciente.cama_reservada_derivacion_id)
+            if cama_reservada:
+                # Liberar la cama reservada
+                cama_reservada.estado = EstadoCamaEnum.LIBRE
+                cama_reservada.mensaje_estado = None
+                cama_reservada.paciente_derivado_id = None
+                cama_reservada.estado_updated_at = datetime.utcnow()
+                self.session.add(cama_reservada)
+
+                logger.info(
+                    f"Cama reservada {cama_reservada.identificador} liberada tras rechazo de derivación"
+                )
+
         # Restaurar cama origen si tiene
         if paciente.cama_origen_derivacion_id:
             cama_origen = self.cama_repo.obtener_por_id(paciente.cama_origen_derivacion_id)
@@ -493,14 +605,15 @@ class DerivacionService:
                 cama_origen.paciente_derivado_id = None
                 cama_origen.estado_updated_at = datetime.utcnow()
                 self.session.add(cama_origen)
-                
+
                 # Obtener hospital de origen
                 if cama_origen.sala and cama_origen.sala.servicio:
                     hospital_origen_id = cama_origen.sala.servicio.hospital_id
-        
+
         # Limpiar datos de derivación
         paciente.derivacion_estado = "rechazada"
         paciente.derivacion_motivo_rechazo = motivo_rechazo
+        paciente.cama_reservada_derivacion_id = None  # Limpiar referencia a cama reservada
         
         # ============================================
         # PROBLEMA 5: Paciente sin cama vuelve a lista de espera con boost

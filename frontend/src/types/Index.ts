@@ -74,6 +74,7 @@ export enum EstadoCamaEnum {
   ESPERA_DERIVACION = "espera_derivacion",
   DERIVACION_CONFIRMADA = "derivacion_confirmada",
   FALLECIDO = 'fallecido',
+  RESERVADA = 'reservada',
 }
 
 export enum EstadoListaEsperaEnum {

@@ -9,6 +9,7 @@ class DerivacionRequest(BaseModel):
     """Request para solicitar derivación."""
     hospital_destino_id: str
     motivo: str
+    cama_reservada_id: Optional[str] = None  # ID de cama a reservar (opcional)
 
 
 class DerivacionAccionRequest(BaseModel):

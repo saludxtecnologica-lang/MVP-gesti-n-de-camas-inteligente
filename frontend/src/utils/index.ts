@@ -83,7 +83,11 @@ export function formatEstado(estado: string): string {
     // ============================================
     // NUEVO: Estado FALLECIDO
     // ============================================
-    fallecido: 'Fallecido'
+    fallecido: 'Fallecido',
+    // ============================================
+    // NUEVO: Estado RESERVADA
+    // ============================================
+    reservada: 'Reservada'
   };
   return estados[estado] || estado;
 }
@@ -159,6 +163,11 @@ export const COLORES_ESTADO: Record<string, string> = {
   // NUEVO: Estado FALLECIDO
   // ============================================
   fallecido: 'bg-gray-800 text-gray-100 border-gray-900',
+  // ============================================
+  // NUEVO: Estado RESERVADA (gris intermedio)
+  // bg-gray-400: más oscuro que libre (gray-50), más claro que fallecido (gray-800)
+  // ============================================
+  reservada: 'bg-gray-400 border-gray-500 text-gray-900',
 };
 
 export const COLORES_COMPLEJIDAD: Record<string, string> = {
