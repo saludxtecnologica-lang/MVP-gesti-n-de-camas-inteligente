@@ -101,12 +101,12 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <AppProvider>
         <ModalProvider>
           <AppContent />
         </ModalProvider>
-      </AuthProvider>
-    </AppProvider>
+      </AppProvider>
+    </AuthProvider>
   );
 }
