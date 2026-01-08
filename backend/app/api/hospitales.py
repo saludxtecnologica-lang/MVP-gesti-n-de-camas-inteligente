@@ -416,24 +416,30 @@ def obtener_lista_espera(
     cama_repo = CamaRepository(session)
 
     for posicion, (paciente, prioridad) in enumerate(pacientes_ordenados, 1):
-        # Filtrar pacientes según acceso del usuario
-        # Si el usuario tiene servicio asignado, solo ver pacientes de ese servicio
-        if current_user.servicio_id:
-            # El usuario puede ver el paciente si:
-            # - El servicio del paciente coincide con el del usuario (origen o destino)
-            paciente_servicio_origen = None
-            paciente_servicio_destino = getattr(paciente, 'servicio_destino', None)
+        # Filtrar pacientes según acceso del usuario usando RBAC service
+        # Determinar servicio de origen y destino para el filtrado
+        paciente_servicio_origen = None
+        paciente_servicio_destino = getattr(paciente, 'servicio_destino', None)
 
-            # Obtener servicio origen desde cama_id si existe
-            if paciente.cama_id:
-                cama_origen = cama_repo.obtener_por_id(paciente.cama_id)
-                if cama_origen and cama_origen.sala and cama_origen.sala.servicio:
-                    paciente_servicio_origen = cama_origen.sala.servicio.id
+        # Obtener servicio origen desde cama_id si existe
+        if paciente.cama_id:
+            cama_origen = cama_repo.obtener_por_id(paciente.cama_id)
+            if cama_origen and cama_origen.sala and cama_origen.sala.servicio:
+                paciente_servicio_origen = cama_origen.sala.servicio.nombre
+        # Si no tiene cama, usar tipo_paciente para determinar origen
+        elif paciente.tipo_paciente == TipoPacienteEnum.URGENCIA:
+            paciente_servicio_origen = "Urgencias"
+        elif paciente.tipo_paciente == TipoPacienteEnum.AMBULATORIO:
+            paciente_servicio_origen = "Ambulatorio"
 
-            # Si no coincide con el servicio del usuario, saltar
-            if (current_user.servicio_id != paciente_servicio_origen and
-                current_user.servicio_id != paciente_servicio_destino):
-                continue
+        # Aplicar filtro RBAC
+        if not rbac_service.puede_ver_paciente(
+            current_user,
+            paciente_servicio_origen,
+            paciente_servicio_destino,
+            paciente.hospital_id
+        ):
+            continue
         # Calcular tiempo de espera
         tiempo_espera_min = 0
         if paciente.timestamp_lista_espera:
