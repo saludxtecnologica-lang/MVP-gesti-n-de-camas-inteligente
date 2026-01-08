@@ -155,18 +155,12 @@ async def crear_paciente(
 ):
     """
     Crea un nuevo paciente y lo agrega a la cola de espera.
-    MEDICO, ENFERMERA (incluye Matrón/a) y PROGRAMADOR pueden crear pacientes.
+    Los usuarios con permiso PACIENTE_CREAR pueden registrar pacientes
+    (MEDICO, ENFERMERA, URGENCIAS, JEFE_URGENCIAS, AMBULATORIO, etc).
 
     Si se especifica derivacion_hospital_destino_id, se solicita la derivación
     automáticamente después de crear el paciente.
     """
-    # Verificar que solo MEDICO, ENFERMERA (incluye Matrón/a) pueden crear pacientes
-    if current_user.rol not in [RolEnum.MEDICO, RolEnum.ENFERMERA, RolEnum.PROGRAMADOR]:
-        raise HTTPException(
-            status_code=403,
-            detail="Solo los médicos, enfermeras y matrones pueden registrar nuevos pacientes"
-        )
-
     # Verificar permiso PACIENTE_CREAR
     if not current_user.tiene_permiso(PermisoEnum.PACIENTE_CREAR):
         raise HTTPException(
@@ -376,13 +370,6 @@ async def actualizar_paciente(
     DERIVACIÓN:
     Si se especifica derivacion_hospital_destino_id, se solicita la derivación.
     """
-    # Verificar que solo MEDICO, ENFERMERA (incluye matrones) pueden reevaluar
-    if current_user.rol not in [RolEnum.MEDICO, RolEnum.ENFERMERA, RolEnum.PROGRAMADOR]:
-        raise HTTPException(
-            status_code=403,
-            detail="Solo los médicos, enfermeras y matrones pueden reevaluar pacientes"
-        )
-
     # Verificar permiso PACIENTE_REEVALUAR
     if not current_user.tiene_permiso(PermisoEnum.PACIENTE_REEVALUAR):
         raise HTTPException(
@@ -1105,19 +1092,19 @@ async def eliminar_paciente_sin_cama(
 ):
     """
     Elimina un paciente que NO tiene cama asignada del sistema.
-    Solo MEDICO puede eliminar pacientes.
-    
+    Los usuarios con permiso REGISTRO_ELIMINAR pueden eliminar pacientes.
+
     Solo funciona si el paciente NO tiene cama (cama_id es None).
     - Remueve al paciente de la lista de espera
     - Elimina el registro del paciente de la base de datos
-    
+
     Retorna error si el paciente tiene cama asignada (usar cancelar-y-volver en su lugar).
     """
-    # Verificar que solo MEDICO puede eliminar
-    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+    # Verificar permiso REGISTRO_ELIMINAR
+    if not current_user.tiene_permiso(PermisoEnum.REGISTRO_ELIMINAR):
         raise HTTPException(
             status_code=403,
-            detail="Solo los médicos pueden eliminar pacientes"
+            detail="No tienes permisos para eliminar pacientes"
         )
 
     from sqlmodel import select
