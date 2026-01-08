@@ -169,11 +169,25 @@ async def crear_paciente(
         )
 
     # Verificar acceso al hospital
-    if not rbac_service.puede_acceder_hospital(current_user, paciente_data.hospital_id):
-        raise HTTPException(
-            status_code=403,
-            detail="No tienes permisos para registrar pacientes en este hospital"
-        )
+    # Primero intentar obtener el hospital para comparar por código
+    hospital_repo = HospitalRepository(session)
+    hospital_destino = hospital_repo.obtener_por_id(paciente_data.hospital_id)
+
+    if hospital_destino:
+        # Comparar usando el código del hospital
+        if not rbac_service.puede_acceder_hospital(current_user, hospital_destino.codigo):
+            raise HTTPException(
+                status_code=403,
+                detail=f"No tienes permisos para registrar pacientes en {hospital_destino.nombre}"
+            )
+    else:
+        # Fallback: comparar por UUID directamente
+        if not rbac_service.puede_acceder_hospital(current_user, paciente_data.hospital_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para registrar pacientes en este hospital"
+            )
+
     repo = PacienteRepository(session)
     service = AsignacionService(session)
     
