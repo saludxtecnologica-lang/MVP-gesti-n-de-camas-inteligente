@@ -142,9 +142,20 @@ async def asignar_manual_desde_lista(
 @router.post("/traslado", response_model=MessageResponse)
 async def traslado_manual(
     request: TrasladoManualRequest,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Realiza un traslado manual inmediato."""
+    """
+    Realiza un traslado manual inmediato.
+    Solo GESTOR_CAMAS de Puerto Montt tiene acceso a modo manual.
+    """
+    # Verificar acceso a modo manual (usar hospital del usuario)
+    hospital_id = current_user.hospital_id or "puerto_montt"  # Default a Puerto Montt
+    if not rbac_service.puede_usar_modo_manual(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
+        )
     service = TrasladoService(session)
     
     try:
@@ -175,9 +186,20 @@ async def traslado_manual(
 @router.post("/intercambiar", response_model=MessageResponse)
 async def intercambiar_pacientes(
     request: IntercambioRequest,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Intercambia las camas de dos pacientes."""
+    """
+    Intercambia las camas de dos pacientes.
+    Solo GESTOR_CAMAS de Puerto Montt tiene acceso a modo manual.
+    """
+    # Verificar acceso a modo manual (usar hospital del usuario)
+    hospital_id = current_user.hospital_id or "puerto_montt"  # Default a Puerto Montt
+    if not rbac_service.puede_usar_modo_manual(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
+        )
     service = TrasladoService(session)
     
     try:
@@ -203,9 +225,20 @@ async def intercambiar_pacientes(
 @router.post("/egresar/{paciente_id}", response_model=MessageResponse)
 async def egresar_manual(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Egresa un paciente manualmente (sin proceso de alta)."""
+    """
+    Egresa un paciente manualmente (sin proceso de alta).
+    Solo GESTOR_CAMAS de Puerto Montt tiene acceso a modo manual.
+    """
+    # Verificar acceso a modo manual (usar hospital del usuario)
+    hospital_id = current_user.hospital_id or "puerto_montt"  # Default a Puerto Montt
+    if not rbac_service.puede_usar_modo_manual(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
+        )
     service = AltaService(session)
     
     try:
@@ -225,25 +258,34 @@ async def egresar_manual(
 @router.delete("/egresar-de-lista/{paciente_id}", response_model=MessageResponse)
 async def egresar_de_lista(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     Elimina un paciente de la lista de espera.
-    
+    Solo GESTOR_CAMAS de Puerto Montt tiene acceso a modo manual.
+
     Flujo según documento:
-    
+
     1. Si paciente DERIVADO (derivacion_estado == "aceptada"):
        - Vuelve a lista de derivados (derivacion_estado = "pendiente")
        - Cama origen pasa a ESPERA_DERIVACION
-    
+
     2. Si paciente HOSPITALIZADO (tiene cama_id):
        - Vuelve a su cama con estado CAMA_EN_ESPERA
        - Se remueve de lista de espera
-    
+
     3. Si paciente SIN CAMA (urgencia/ambulatorio):
        - Se elimina de lista de espera
        - Queda inactivo en el sistema (para trazabilidad)
     """
+    # Verificar acceso a modo manual (usar hospital del usuario)
+    hospital_id = current_user.hospital_id or "puerto_montt"  # Default a Puerto Montt
+    if not rbac_service.puede_usar_modo_manual(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
+        )
     paciente_repo = PacienteRepository(session)
     cama_repo = CamaRepository(session)
     service = AsignacionService(session)
@@ -508,14 +550,16 @@ async def cancelar_fallecimiento(
 @router.post("/cancelar-asignacion-lista/{paciente_id}", response_model=MessageResponse)
 async def cancelar_asignacion_desde_lista(
     paciente_id: str,
+    current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     Cancela la asignación de cama destino manteniendo al paciente en lista de espera.
-    
+    Solo GESTOR_CAMAS de Puerto Montt tiene acceso a modo manual.
+
     Este endpoint se usa cuando un paciente tiene una cama asignada (cama_destino_id)
     pero se quiere cancelar esa asignación sin sacarlo de la lista de espera.
-    
+
     Flujo:
     1. Liberar la cama destino (estado = LIBRE)
     2. Si tiene cama de origen (cama_id):
@@ -524,13 +568,20 @@ async def cancelar_asignacion_desde_lista(
        - Solo permanece en lista de espera
        - Puede ser reevaluado o derivado
     4. Paciente se mantiene en lista de espera con estado "esperando"
-    
+
     Args:
         paciente_id: ID del paciente
-    
+
     Returns:
         MessageResponse con resultado de la operación
     """
+    # Verificar acceso a modo manual (usar hospital del usuario)
+    hospital_id = current_user.hospital_id or "puerto_montt"  # Default a Puerto Montt
+    if not rbac_service.puede_usar_modo_manual(current_user, hospital_id):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para usar el modo manual (solo GESTOR_CAMAS de Puerto Montt)"
+        )
     paciente_repo = PacienteRepository(session)
     cama_repo = CamaRepository(session)
     

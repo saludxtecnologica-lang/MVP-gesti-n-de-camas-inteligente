@@ -155,16 +155,16 @@ async def crear_paciente(
 ):
     """
     Crea un nuevo paciente y lo agrega a la cola de espera.
-    Solo MEDICO puede crear pacientes.
+    MEDICO, ENFERMERA (incluye Matrón/a) y PROGRAMADOR pueden crear pacientes.
 
     Si se especifica derivacion_hospital_destino_id, se solicita la derivación
     automáticamente después de crear el paciente.
     """
-    # Verificar que solo MEDICO puede crear pacientes
-    if current_user.rol != RolEnum.MEDICO and current_user.rol != RolEnum.PROGRAMADOR:
+    # Verificar que solo MEDICO, ENFERMERA (incluye Matrón/a) pueden crear pacientes
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.ENFERMERA, RolEnum.PROGRAMADOR]:
         raise HTTPException(
             status_code=403,
-            detail="Solo los médicos pueden registrar nuevos pacientes"
+            detail="Solo los médicos, enfermeras y matrones pueden registrar nuevos pacientes"
         )
 
     # Verificar permiso PACIENTE_CREAR

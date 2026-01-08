@@ -309,7 +309,7 @@ PERMISOS_POR_ROL: dict[RolEnum, set[PermisoEnum]] = {
     },
 
     # ENFERMERA/MATRONA - Por servicio
-    # Funciones según tabla: Reevaluación, Ver resumen/adjuntos, Aceptar Traslado de cama,
+    # Funciones según tabla: Registro de pacientes, Reevaluación, Ver resumen/adjuntos, Aceptar Traslado de cama,
     # Cancelar Traslado, Dar Alta (Estado "Cama Alta"), Egreso (Fallecido/Derivación Confirmada),
     # Completar Traslado, Omitir pausas de oxígeno / Eliminar
     RolEnum.ENFERMERA: {
@@ -320,7 +320,8 @@ PERMISOS_POR_ROL: dict[RolEnum, set[PermisoEnum]] = {
         PermisoEnum.LISTA_ESPERA_VER,
         PermisoEnum.RESUMEN_VER,  # Ver resumen e información con adjuntos
 
-        # Reevaluación de paciente
+        # Registro y Reevaluación de paciente
+        PermisoEnum.PACIENTE_CREAR,  # Registro de pacientes nuevos
         PermisoEnum.PACIENTE_REEVALUAR,
 
         # Traslados

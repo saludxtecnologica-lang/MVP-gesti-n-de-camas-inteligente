@@ -21,18 +21,43 @@ router = APIRouter()
 
 
 @router.get("/hospital/{hospital_id}", response_model=List[PacienteDerivadoResponse])
-def obtener_derivados(hospital_id: str, session: Session = Depends(get_session)):
-    """Obtiene pacientes derivados pendientes hacia un hospital."""
+def obtener_derivados(
+    hospital_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """Obtiene pacientes derivados pendientes hacia un hospital. Filtrado por permisos del usuario."""
     service = DerivacionService(session)
     pacientes = service.obtener_derivados_pendientes(hospital_id)
-    
+
     resultado = []
     for paciente in pacientes:
         # Obtener hospital de origen
         from app.repositories.hospital_repo import HospitalRepository
+        from app.repositories.cama_repo import CamaRepository
         hospital_repo = HospitalRepository(session)
+        cama_repo = CamaRepository(session)
         hospital_origen = hospital_repo.obtener_por_id(paciente.hospital_id)
-        
+
+        # Determinar servicio de origen y destino para filtrado RBAC
+        paciente_servicio_origen = None
+        paciente_servicio_destino = getattr(paciente, 'servicio_destino', None)
+
+        # Obtener servicio de origen desde cama_origen_derivacion_id
+        if paciente.cama_origen_derivacion_id:
+            cama_origen = cama_repo.obtener_por_id(paciente.cama_origen_derivacion_id)
+            if cama_origen and cama_origen.sala and cama_origen.sala.servicio:
+                paciente_servicio_origen = cama_origen.sala.servicio.nombre
+
+        # Aplicar filtro RBAC - Solo mostrar si el usuario puede ver este paciente
+        if not rbac_service.puede_ver_paciente(
+            current_user,
+            paciente_servicio_origen,
+            paciente_servicio_destino,
+            paciente.hospital_id
+        ):
+            continue
+
         resultado.append(PacienteDerivadoResponse(
             paciente_id=paciente.id,
             nombre=paciente.nombre,
@@ -46,41 +71,61 @@ def obtener_derivados(hospital_id: str, session: Session = Depends(get_session))
             complejidad=paciente.complejidad_requerida.value,
             diagnostico=paciente.diagnostico
         ))
-    
+
     return resultado
 
 
 @router.get("/hospital/{hospital_id}/enviados")
-def obtener_derivados_enviados(hospital_id: str, session: Session = Depends(get_session)):
+def obtener_derivados_enviados(
+    hospital_id: str,
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
     """
     Obtiene pacientes derivados DESDE este hospital a otros hospitales.
-    
+    Filtrado por permisos del usuario.
+
     Retorna la lista de pacientes que han sido derivados a otros hospitales,
     mostrando su estado actual (pendiente o aceptada).
     """
     service = DerivacionService(session)
     pacientes = service.obtener_derivados_enviados(hospital_id)
-    
+
     resultado = []
     from app.repositories.hospital_repo import HospitalRepository
     from app.repositories.cama_repo import CamaRepository
     hospital_repo = HospitalRepository(session)
     cama_repo = CamaRepository(session)
-    
+
     for paciente in pacientes:
-        # Obtener hospital destino
-        hospital_destino = None
-        if paciente.derivacion_hospital_destino_id:
-            hospital_destino = hospital_repo.obtener_por_id(paciente.derivacion_hospital_destino_id)
-        
-        # Obtener cama origen
+        # Determinar servicio de origen y destino para filtrado RBAC
+        paciente_servicio_origen = None
+        paciente_servicio_destino = getattr(paciente, 'servicio_destino', None)
+
+        # Obtener cama origen y servicio de origen
         cama_origen = None
         cama_identificador = None
         if paciente.cama_origen_derivacion_id:
             cama_origen = cama_repo.obtener_por_id(paciente.cama_origen_derivacion_id)
             if cama_origen:
                 cama_identificador = cama_origen.identificador
-        
+                if cama_origen.sala and cama_origen.sala.servicio:
+                    paciente_servicio_origen = cama_origen.sala.servicio.nombre
+
+        # Aplicar filtro RBAC - Solo mostrar si el usuario puede ver este paciente
+        if not rbac_service.puede_ver_paciente(
+            current_user,
+            paciente_servicio_origen,
+            paciente_servicio_destino,
+            paciente.hospital_id
+        ):
+            continue
+
+        # Obtener hospital destino
+        hospital_destino = None
+        if paciente.derivacion_hospital_destino_id:
+            hospital_destino = hospital_repo.obtener_por_id(paciente.derivacion_hospital_destino_id)
+
         resultado.append({
             "paciente_id": paciente.id,
             "nombre": paciente.nombre,
@@ -94,7 +139,7 @@ def obtener_derivados_enviados(hospital_id: str, session: Session = Depends(get_
             "complejidad": paciente.complejidad_requerida.value if paciente.complejidad_requerida else "ninguna",
             "diagnostico": paciente.diagnostico
         })
-    
+
     return resultado
 
 
