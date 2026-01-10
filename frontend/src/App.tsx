@@ -40,11 +40,13 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header con UserBadge */}
-      <Header vistaActual={vistaActual} onCambiarVista={setVistaActual}>
-        {/* UserBadge se pasa como children al Header */}
-        <UserBadge />
-      </Header>
+      {/* Header con UserBadge - Fijo en la parte superior */}
+      <div className="sticky top-0 z-50 shadow-md">
+        <Header vistaActual={vistaActual} onCambiarVista={setVistaActual}>
+          {/* UserBadge se pasa como children al Header */}
+          <UserBadge />
+        </Header>
+      </div>
 
       {/* Contenido principal */}
       <main className="max-w-7xl mx-auto px-4 py-6">
