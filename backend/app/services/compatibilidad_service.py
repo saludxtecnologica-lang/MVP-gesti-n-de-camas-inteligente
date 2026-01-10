@@ -549,11 +549,27 @@ class CompatibilidadService:
         - Optimizar el uso de recursos hospitalarios
 
         CORREGIDO: Pacientes con aislamiento individual que ya están en sala individual
-        del nivel correcto NO deben buscar otra cama.
+        NO deben buscar otra cama, independientemente de la complejidad del servicio.
 
         Returns:
             True si el paciente debería buscar cama de su nivel correcto
         """
+        # CORRECCIÓN PROBLEMA 1: Verificar PRIMERO si es un caso de aislamiento individual
+        # Si el paciente requiere aislamiento individual y ya está en sala individual,
+        # NO buscar otra cama, porque la ubicación está determinada por el aislamiento,
+        # no por la complejidad. El servicio AISLAMIENTO tiene complejidad ALTA configurada
+        # pero puede atender pacientes de cualquier complejidad.
+        requiere_individual = self.paciente_requiere_aislamiento_individual(paciente)
+        cama_es_individual = self.cama_es_aislamiento_individual(cama_actual)
+
+        if requiere_individual and cama_es_individual:
+            logger.info(
+                f"Paciente {paciente.nombre} requiere aislamiento individual y "
+                f"ya está en sala individual - NO BUSCAR OTRA CAMA "
+                f"(ubicación determinada por aislamiento, no por complejidad)"
+            )
+            return False
+
         # Obtener complejidad del paciente
         complejidad_paciente = paciente.complejidad_requerida
         if not complejidad_paciente:
@@ -570,20 +586,6 @@ class CompatibilidadService:
             f"nivel_paciente={nivel_paciente} ({_obtener_complejidad_display(complejidad_paciente)}), "
             f"nivel_cama={nivel_cama} ({_obtener_complejidad_display(complejidad_cama)})"
         )
-
-        # CORRECCIÓN PROBLEMA 1: Si el paciente requiere aislamiento individual
-        # y ya está en sala individual del nivel CORRECTO, no buscar otra cama.
-        # Esto evita traslados innecesarios entre salas de aislamiento.
-        if nivel_cama == nivel_paciente:
-            requiere_individual = self.paciente_requiere_aislamiento_individual(paciente)
-            cama_es_individual = self.cama_es_aislamiento_individual(cama_actual)
-
-            if requiere_individual and cama_es_individual:
-                logger.info(
-                    f"Paciente {paciente.nombre} requiere aislamiento individual, "
-                    f"ya está en sala individual del nivel correcto - NO BUSCAR OTRA CAMA"
-                )
-                return False
 
         # Si la cama es del nivel correcto o inferior, no hay problema
         if nivel_cama <= nivel_paciente:
