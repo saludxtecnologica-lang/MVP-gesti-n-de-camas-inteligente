@@ -443,28 +443,34 @@ class TrasladoService:
                     cama_origen.estado_updated_at = datetime.utcnow()
                     self.session.add(cama_origen)
 
-                    # Paciente VUELVE a lista de espera (no se remueve de la cola)
-                    # Si ya estaba en lista espera, mantenerlo
-                    if not paciente.en_lista_espera:
-                        from app.services.asignacion_service import AsignacionService
-                        paciente.requiere_nueva_cama = True
-                        paciente.en_lista_espera = True
-                        paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-                        self.session.add(paciente)
-                        self.session.commit()
+                    # Asegurar que el paciente está en lista de espera
+                    paciente.requiere_nueva_cama = True
+                    paciente.en_lista_espera = True
+                    paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
 
-                        # Agregar a cola de prioridad
+                    # Actualizar timestamp si no tiene o es muy antiguo
+                    if not paciente.timestamp_lista_espera:
+                        paciente.timestamp_lista_espera = datetime.utcnow()
+
+                    self.session.add(paciente)
+                    self.session.commit()
+
+                    # CRÍTICO: Verificar si está en cola de prioridad en memoria
+                    # Si no está, agregarlo (puede haberse removido al asignar cama)
+                    from app.services.prioridad_service import gestor_colas_global
+                    from app.services.asignacion_service import AsignacionService
+
+                    cola = gestor_colas_global.obtener_cola(paciente.hospital_id)
+                    if not cola.contiene(paciente.id):
+                        # No está en cola, agregarlo
                         asignacion_service = AsignacionService(self.session)
                         asignacion_service.agregar_a_cola(paciente)
                         self.session.commit()
-
                         logger.info(
                             f"Traslado cancelado para {paciente.nombre} - "
-                            f"cama origen a TRASLADO_SALIENTE, paciente vuelve a lista de espera"
+                            f"cama origen a TRASLADO_SALIENTE, paciente agregado a lista de espera"
                         )
                     else:
-                        self.session.add(paciente)
-                        self.session.commit()
                         logger.info(
                             f"Traslado cancelado para {paciente.nombre} - "
                             f"cama origen a TRASLADO_SALIENTE, paciente permanece en lista de espera"
