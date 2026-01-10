@@ -560,7 +560,12 @@ async def cancelar_asignacion_desde_lista(
     Este endpoint se usa cuando un paciente tiene una cama asignada (cama_destino_id)
     pero se quiere cancelar esa asignación sin sacarlo de la lista de espera.
 
-    Flujo:
+    Flujo para pacientes derivados (derivacion_estado == "aceptada"):
+    1. Usa DerivacionService.cancelar_derivacion_desde_lista_espera()
+    2. Paciente vuelve a lista de "derivados pendientes"
+    3. Cama origen pasa de DERIVACION_CONFIRMADA a ESPERA_DERIVACION
+
+    Flujo para pacientes normales:
     1. Liberar la cama destino (estado = LIBRE)
     2. Si tiene cama de origen (cama_id):
        - Cama origen pasa a TRASLADO_SALIENTE
@@ -603,7 +608,30 @@ async def cancelar_asignacion_desde_lista(
             status_code=400,
             detail="El paciente no tiene cama destino asignada"
         )
-    
+
+    # ============================================
+    # PACIENTE DERIVADO: Usar servicio de derivación
+    # ============================================
+    if paciente.derivacion_estado == "aceptada":
+        derivacion_service = DerivacionService(session)
+
+        try:
+            resultado = derivacion_service.cancelar_derivacion_desde_lista_espera(paciente_id)
+
+            await manager.broadcast({
+                "tipo": "derivacion_cancelada_lista_espera",
+                "paciente_id": paciente_id,
+                "reload": True
+            })
+
+            return MessageResponse(success=True, message=resultado.mensaje)
+
+        except ValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # ============================================
+    # PACIENTE NORMAL: Cancelar asignación estándar
+    # ============================================
     hospital_id = paciente.hospital_id
     tiene_cama_origen = paciente.cama_id is not None
     cama_destino_id = paciente.cama_destino_id
