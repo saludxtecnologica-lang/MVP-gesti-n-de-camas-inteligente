@@ -3523,3 +3523,35 @@ input[type="number"]::placeholder {
 .animate-stateChange {
   animation: stateChange 0.4s ease-in-out;
 }
+
+/* ==================== ANIMACIÓN DE PULSO EN BORDE ==================== */
+@keyframes borderPulse {
+  0%, 100% {
+    border-width: 2px;
+    opacity: 1;
+  }
+  50% {
+    border-width: 3px;
+    opacity: 0.85;
+  }
+}
+
+.animate-borderPulse {
+  animation: borderPulse 1.5s ease-in-out infinite;
+}
+
+/* Animación de escala de entrada mejorada */
+@keyframes scaleEntrance {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scaleEntrance {
+  animation: scaleEntrance 0.3s ease-out;
+}

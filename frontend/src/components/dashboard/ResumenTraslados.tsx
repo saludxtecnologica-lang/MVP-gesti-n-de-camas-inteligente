@@ -1,0 +1,252 @@
+import React, { useMemo } from 'react';
+import { User, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
+import { useModal } from '../../context/ModalContext';
+import type { Cama, Paciente } from '../../types';
+import { formatEstado, formatComplejidad } from '../../utils';
+
+// Roles globales que pueden ver todos los servicios
+const ROLES_GLOBALES = [
+  'programador',
+  'directivo_red',
+  'directivo_hospital',
+  'gestor_camas'
+];
+
+interface PacienteTraslado extends Paciente {
+  cama_identificador?: string;
+  servicio_nombre?: string;
+  tipo_traslado: 'entrante' | 'saliente';
+}
+
+export function ResumenTraslados() {
+  const { camas, listaEspera, dataVersion } = useApp();
+  const { user } = useAuth();
+  const { openModal } = useModal();
+
+  // Determinar si el usuario tiene acceso global
+  const esRolGlobal = user?.rol && ROLES_GLOBALES.includes(user.rol);
+  const servicioUsuario = user?.servicio_id;
+
+  // ============================================
+  // OBTENER PACIENTES EN TRASLADO
+  // ============================================
+  const pacientesEnTraslado = useMemo(() => {
+    const pacientes: PacienteTraslado[] = [];
+
+    // Estados de traslado entrante
+    const estadosEntrantes = ['traslado_entrante', 'cama_en_espera'];
+
+    // Estados de traslado saliente
+    const estadosSalientes = [
+      'traslado_saliente',
+      'traslado_confirmado',
+      'espera_derivacion',
+      'derivacion_confirmada'
+    ];
+
+    // Recorrer todas las camas
+    camas.forEach(cama => {
+      // Verificar si debe incluirse según permisos
+      // Si no es rol global y hay un servicio asignado, filtrar por servicio
+      if (!esRolGlobal && servicioUsuario && servicioUsuario !== cama.servicio_nombre) {
+        return;
+      }
+
+      // Pacientes entrantes
+      if (estadosEntrantes.includes(cama.estado)) {
+        const paciente = cama.paciente_entrante || cama.paciente;
+        if (paciente) {
+          pacientes.push({
+            ...paciente,
+            cama_identificador: cama.identificador,
+            servicio_nombre: cama.servicio_nombre,
+            tipo_traslado: 'entrante'
+          });
+        }
+      }
+
+      // Pacientes salientes
+      if (estadosSalientes.includes(cama.estado)) {
+        const paciente = cama.paciente;
+        if (paciente) {
+          pacientes.push({
+            ...paciente,
+            cama_identificador: cama.identificador,
+            servicio_nombre: cama.servicio_nombre,
+            tipo_traslado: 'saliente'
+          });
+        }
+      }
+    });
+
+    // Agregar pacientes de lista de espera (entrantes)
+    listaEspera.forEach(paciente => {
+      // Verificar permisos (aquí necesitamos verificar por el servicio requerido del paciente)
+      // Por ahora, los incluimos si es rol global o si no hay filtro de servicio
+      if (esRolGlobal || !servicioUsuario) {
+        pacientes.push({
+          ...paciente,
+          tipo_traslado: 'entrante'
+        });
+      }
+    });
+
+    // Ordenar por prioridad (mayor prioridad primero)
+    return pacientes.sort((a, b) => {
+      const prioridadA = a.prioridad_calculada || 0;
+      const prioridadB = b.prioridad_calculada || 0;
+      return prioridadB - prioridadA;
+    });
+  }, [camas, listaEspera, esRolGlobal, servicioUsuario, dataVersion]);
+
+  // Separar por tipo de traslado
+  const pacientesEntrantes = pacientesEnTraslado.filter(p => p.tipo_traslado === 'entrante');
+  const pacientesSalientes = pacientesEnTraslado.filter(p => p.tipo_traslado === 'saliente');
+
+  // ============================================
+  // HANDLERS
+  // ============================================
+  const handleClickPaciente = (paciente: PacienteTraslado) => {
+    openModal('verPaciente', { paciente });
+  };
+
+  // ============================================
+  // COMPONENTE DE ITEM DE PACIENTE
+  // ============================================
+  const PacienteItem = ({ paciente, index }: { paciente: PacienteTraslado; index: number }) => {
+    const sexo = paciente.sexo || 'hombre';
+    const colorSexo = sexo === 'hombre' ? 'bg-blue-500' : 'bg-pink-500';
+    const colorSexoLight = sexo === 'hombre' ? 'bg-blue-50 border-blue-200' : 'bg-pink-50 border-pink-200';
+
+    // Determinar estado del paciente
+    let estadoTexto = 'En espera de cama';
+    if (paciente.cama_identificador) {
+      estadoTexto = 'Cama asignada';
+    }
+    if (paciente.en_lista_espera) {
+      estadoTexto = 'En lista de espera';
+    }
+
+    return (
+      <button
+        onClick={() => handleClickPaciente(paciente)}
+        className={`w-full p-3 ${colorSexoLight} border rounded-lg hover:shadow-md transition-all duration-200 text-left group`}
+      >
+        <div className="flex items-start gap-3">
+          {/* Número */}
+          <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-white rounded-full text-xs font-bold text-gray-700 border">
+            {index + 1}
+          </div>
+
+          {/* Logo de persona */}
+          <div className={`flex-shrink-0 ${colorSexo} rounded-full p-2 group-hover:scale-110 transition-transform`}>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-5 h-5"
+            >
+              {/* Cabeza */}
+              <circle cx="12" cy="8" r="4" />
+              {/* Torso */}
+              <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+            </svg>
+          </div>
+
+          {/* Información */}
+          <div className="flex-grow min-w-0">
+            <p className="font-semibold text-sm text-gray-800 truncate">
+              {paciente.nombre}
+            </p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              {estadoTexto}
+            </p>
+            <div className="flex flex-wrap gap-1 mt-1">
+              <span className="text-xs bg-white px-2 py-0.5 rounded-full">
+                {formatComplejidad(paciente.complejidad_requerida || paciente.complejidad || 'ninguna')}
+              </span>
+              {paciente.cama_identificador && (
+                <span className="text-xs bg-white px-2 py-0.5 rounded-full">
+                  {paciente.cama_identificador}
+                </span>
+              )}
+              {paciente.servicio_nombre && (
+                <span className="text-xs bg-white px-2 py-0.5 rounded-full">
+                  {paciente.servicio_nombre}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </button>
+    );
+  };
+
+  // ============================================
+  // RENDER
+  // ============================================
+  return (
+    <div className="bg-white rounded-lg shadow-lg border border-gray-200 h-full flex flex-col">
+      {/* Header */}
+      <div className="px-4 py-3 border-b bg-gradient-to-r from-blue-50 to-purple-50">
+        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+          <ArrowUpCircle className="w-5 h-5 text-blue-600" />
+          Resumen de Traslados
+        </h3>
+        <p className="text-xs text-gray-500 mt-1">
+          {esRolGlobal ? 'Todos los servicios' : `Servicio: ${servicioUsuario || 'N/A'}`}
+        </p>
+      </div>
+
+      {/* Contenido */}
+      <div className="flex-grow overflow-y-auto">
+        {/* Pacientes Entrantes */}
+        <div className="p-4 border-b bg-green-50">
+          <div className="flex items-center gap-2 mb-3">
+            <ArrowDownCircle className="w-4 h-4 text-green-600" />
+            <h4 className="font-semibold text-sm text-gray-800">
+              Entrantes ({pacientesEntrantes.length})
+            </h4>
+          </div>
+          <div className="space-y-2">
+            {pacientesEntrantes.length > 0 ? (
+              pacientesEntrantes.map((paciente, index) => (
+                <PacienteItem key={paciente.id} paciente={paciente} index={index} />
+              ))
+            ) : (
+              <p className="text-xs text-gray-500 text-center py-4">
+                No hay pacientes entrantes
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Pacientes Salientes */}
+        <div className="p-4 bg-orange-50">
+          <div className="flex items-center gap-2 mb-3">
+            <ArrowUpCircle className="w-4 h-4 text-orange-600" />
+            <h4 className="font-semibold text-sm text-gray-800">
+              Salientes ({pacientesSalientes.length})
+            </h4>
+          </div>
+          <div className="space-y-2">
+            {pacientesSalientes.length > 0 ? (
+              pacientesSalientes.map((paciente, index) => (
+                <PacienteItem key={paciente.id} paciente={paciente} index={index} />
+              ))
+            ) : (
+              <p className="text-xs text-gray-500 text-center py-4">
+                No hay pacientes salientes
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
