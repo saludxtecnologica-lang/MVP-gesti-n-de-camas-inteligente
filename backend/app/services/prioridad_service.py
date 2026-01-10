@@ -244,8 +244,8 @@ class PrioridadService:
     
     1. BASE POR TIPO DE PACIENTE (tipo efectivo):
        - Hospitalizado (con cama): 200 (máxima prioridad)
+       - Derivado: 150 (alta prioridad - transferencia inter-hospitalaria)
        - Urgencia (incluye ambulatorio por estabilización): 100
-       - Derivado: 80
        - Ambulatorio (tratamiento): 60
     
     2. SERVICIO DE ORIGEN (solo hospitalizados):
@@ -286,8 +286,8 @@ class PrioridadService:
     # ========================================
     PESO_TIPO = {
         'hospitalizado': 200,
+        'derivado': 150,      # Alta prioridad - transferencia inter-hospitalaria
         'urgencia': 100,
-        'derivado': 80,
         'ambulatorio': 60,
     }
     
@@ -473,24 +473,31 @@ class PrioridadService:
     def _obtener_tipo_efectivo(self, paciente: Paciente) -> str:
         """
         Determina el tipo efectivo del paciente para priorización.
-        
+
         REGLAS:
-        1. Si tiene cama asignada → hospitalizado
-        2. Si es ambulatorio con estabilización clínica → urgencia
-        3. En otro caso → tipo original
+        1. Si es derivado aceptado → derivado (PRIORIDAD SOBRE cama_id)
+        2. Si tiene cama asignada → hospitalizado
+        3. Si es ambulatorio con estabilización clínica → urgencia
+        4. En otro caso → tipo original
         """
+        # CRÍTICO: Verificar primero si es derivado aceptado
+        # Un paciente derivado puede tener cama_id (su cama de origen)
+        # pero debe ser tratado como DERIVADO para priorización correcta
+        if paciente.derivacion_estado == "aceptada":
+            return 'derivado'
+
         # Si tiene cama asignada, ES hospitalizado
         if self._es_paciente_hospitalizado(paciente):
             return 'hospitalizado'
-        
+
         tipo = _normalizar_tipo_paciente(paciente.tipo_paciente)
-        
+
         # CRÍTICO: Ambulatorio con estabilización = prioridad urgencia
         if tipo == 'ambulatorio':
             motivo = getattr(paciente, 'motivo_ingreso_ambulatorio', None)
             if motivo == 'estabilizacion_clinica':
                 return 'urgencia'
-        
+
         return tipo
     
     # ========================================

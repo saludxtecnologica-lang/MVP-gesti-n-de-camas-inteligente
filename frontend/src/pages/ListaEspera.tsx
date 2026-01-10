@@ -443,19 +443,21 @@ export function ListaEspera() {
               // - Reevaluar/Derivar: Solo si NO tiene cama destino asignada
               // - Asignar cama (modo manual): Solo si NO tiene cama destino Y modo manual activo
               // - Cancelar asignación: Solo si TIENE cama destino asignada
-              // - Cancelar/Volver: Solo si tiene cama origen (y no tiene cama destino)
-              //   * Para HOSPITALIZADO: vuelve a su cama de origen
-              //   * Para DERIVADO: vuelve a lista de derivados pendientes
+              // - Cancelar/Volver:
+              //   * Para HOSPITALIZADO: Solo si tiene cama origen y vuelve a su cama
+              //   * Para DERIVADO: Siempre disponible (vuelve a lista de derivados pendientes)
               // - Eliminar: Solo para URGENCIA/AMBULATORIO sin cama origen ni destino
               // ============================================
               const puedeReevaluarDerivar = !tieneCamaDestino;
               const puedeAsignarCamaManual = modoManual && !tieneCamaDestino;
               const puedeCancelarAsignacion = tieneCamaDestino;
 
-              // NUEVO: Cancelar solo para pacientes con cama origen (hospitalizado o derivado)
-              const puedeCancelarVolver = tieneCamaOrigen && !tieneCamaDestino;
+              // CORREGIDO: Cancelar para:
+              // - Pacientes con cama origen (hospitalizados)
+              // - Pacientes derivados (pueden no tener cama_id pero sí deben poder cancelar)
+              const puedeCancelarVolver = (tieneCamaOrigen || esDerivado) && !tieneCamaDestino;
 
-              // NUEVO: Eliminar solo para urgencia/ambulatorio sin cama origen ni destino
+              // Eliminar solo para urgencia/ambulatorio sin cama origen ni destino
               const esUrgenciaOAmbulatorio = tipoPaciente === 'urgencia' || tipoPaciente === 'ambulatorio';
               const puedeEliminar = esUrgenciaOAmbulatorio && !tieneCamaOrigen && !tieneCamaDestino;
               
