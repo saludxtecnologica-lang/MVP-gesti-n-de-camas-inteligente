@@ -139,6 +139,27 @@ export function ListaEspera() {
     return !!(item.paciente?.cama_destino_id) || item.estado_lista === 'asignado';
   };
 
+  // ============================================
+  // NUEVO: Helper para obtener tipo de paciente
+  // ============================================
+  const getTipoPaciente = (item: typeof listaEspera[0]): string => {
+    // Primero verificar si es derivado
+    if (esItemDerivado(item)) return 'derivado';
+
+    // Luego verificar origen_tipo del item
+    if (item.origen_tipo) return item.origen_tipo.toLowerCase();
+
+    // Finalmente verificar tipo_paciente del paciente
+    if (item.paciente?.tipo_paciente) {
+      return String(item.paciente.tipo_paciente).toLowerCase();
+    }
+
+    // Si tiene cama de origen, probablemente es hospitalizado
+    if (tieneCamaActual(item)) return 'hospitalizado';
+
+    return 'urgencia'; // Default
+  };
+
   // Helper para obtener complejidad (usando propiedades existentes)
   const getComplejidad = (item: typeof listaEspera[0]): string => {
     const comp = item.paciente?.complejidad_requerida || item.paciente?.complejidad;
@@ -415,20 +436,28 @@ export function ListaEspera() {
               const servicioDestino = getServicioDestino(item);
               const camaDestinoInfo = getCamaDestinoInfo(item);
               const esAsignado = item.estado_lista === 'asignado';
-              
+              const tipoPaciente = getTipoPaciente(item);
+
               // ============================================
-              // LÓGICA DE BOTONES:
+              // LÓGICA DE BOTONES OPTIMIZADA:
               // - Reevaluar/Derivar: Solo si NO tiene cama destino asignada
               // - Asignar cama (modo manual): Solo si NO tiene cama destino Y modo manual activo
               // - Cancelar asignación: Solo si TIENE cama destino asignada
               // - Cancelar/Volver: Solo si tiene cama origen (y no tiene cama destino)
-              // - Eliminar: Solo si NO tiene cama origen NI cama destino
+              //   * Para HOSPITALIZADO: vuelve a su cama de origen
+              //   * Para DERIVADO: vuelve a lista de derivados pendientes
+              // - Eliminar: Solo para URGENCIA/AMBULATORIO sin cama origen ni destino
               // ============================================
               const puedeReevaluarDerivar = !tieneCamaDestino;
               const puedeAsignarCamaManual = modoManual && !tieneCamaDestino;
               const puedeCancelarAsignacion = tieneCamaDestino;
+
+              // NUEVO: Cancelar solo para pacientes con cama origen (hospitalizado o derivado)
               const puedeCancelarVolver = tieneCamaOrigen && !tieneCamaDestino;
-              const puedeEliminar = !tieneCamaOrigen && !tieneCamaDestino;
+
+              // NUEVO: Eliminar solo para urgencia/ambulatorio sin cama origen ni destino
+              const esUrgenciaOAmbulatorio = tipoPaciente === 'urgencia' || tipoPaciente === 'ambulatorio';
+              const puedeEliminar = esUrgenciaOAmbulatorio && !tieneCamaOrigen && !tieneCamaDestino;
               
               return (
                 <tr 
@@ -582,18 +611,18 @@ export function ListaEspera() {
                         </button>
                       )}
                       
-                      {/* Botón Cancelar/Volver a cama - Solo si tiene cama origen y NO tiene destino */}
+                      {/* Botón Cancelar/Volver - Comportamiento según tipo de paciente */}
                       {puedeCancelarVolver && (
                         <button
                           onClick={(e) => handleMostrarCancelar(item, e)}
                           className="p-1.5 text-orange-600 hover:bg-orange-50 rounded"
-                          title="Cancelar búsqueda y volver a cama"
+                          title={esDerivado ? "Cancelar y volver a lista de derivados" : "Cancelar búsqueda y volver a cama"}
                         >
                           <RotateCcw className="w-4 h-4" />
                         </button>
                       )}
                       
-                      {/* Botón Eliminar - Solo si NO tiene cama origen NI destino */}
+                      {/* Botón Eliminar - Solo para urgencia/ambulatorio sin cama origen ni destino */}
                       {puedeEliminar && (
                         <button
                           onClick={(e) => handleMostrarEliminar(item, e)}
