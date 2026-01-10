@@ -541,13 +541,16 @@ class CompatibilidadService:
         """
         Verifica si un paciente está en una cama de complejidad SUPERIOR a la necesaria
         y hay camas de su nivel correcto disponibles.
-        
+
         Ejemplo: Paciente UTI en cama UCI, cuando hay camas UTI disponibles.
-        
+
         Esto es importante para:
         - Liberar camas UCI/UTI para pacientes que realmente las necesitan
         - Optimizar el uso de recursos hospitalarios
-        
+
+        CORREGIDO: Pacientes con aislamiento individual que ya están en sala individual
+        del nivel correcto NO deben buscar otra cama.
+
         Returns:
             True si el paciente debería buscar cama de su nivel correcto
         """
@@ -555,19 +558,33 @@ class CompatibilidadService:
         complejidad_paciente = paciente.complejidad_requerida
         if not complejidad_paciente:
             complejidad_paciente = self.calcular_complejidad_paciente(paciente)
-        
+
         # Obtener complejidad de la cama
         complejidad_cama = self.obtener_complejidad_maxima_cama(cama_actual)
-        
+
         nivel_paciente = _obtener_nivel_complejidad(complejidad_paciente)
         nivel_cama = _obtener_nivel_complejidad(complejidad_cama)
-        
+
         logger.debug(
             f"Verificando si paciente {paciente.nombre} está en cama de complejidad superior: "
             f"nivel_paciente={nivel_paciente} ({_obtener_complejidad_display(complejidad_paciente)}), "
             f"nivel_cama={nivel_cama} ({_obtener_complejidad_display(complejidad_cama)})"
         )
-        
+
+        # CORRECCIÓN PROBLEMA 1: Si el paciente requiere aislamiento individual
+        # y ya está en sala individual del nivel CORRECTO, no buscar otra cama.
+        # Esto evita traslados innecesarios entre salas de aislamiento.
+        if nivel_cama == nivel_paciente:
+            requiere_individual = self.paciente_requiere_aislamiento_individual(paciente)
+            cama_es_individual = self.cama_es_aislamiento_individual(cama_actual)
+
+            if requiere_individual and cama_es_individual:
+                logger.info(
+                    f"Paciente {paciente.nombre} requiere aislamiento individual, "
+                    f"ya está en sala individual del nivel correcto - NO BUSCAR OTRA CAMA"
+                )
+                return False
+
         # Si la cama es del nivel correcto o inferior, no hay problema
         if nivel_cama <= nivel_paciente:
             logger.debug(f"Paciente {paciente.nombre}: cama es de nivel correcto o inferior")
