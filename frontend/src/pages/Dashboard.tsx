@@ -539,7 +539,7 @@ export function Dashboard() {
       </div>
 
       {/* Columna Lateral - Resumen de Traslados */}
-      <div className="w-96 flex-shrink-0 sticky top-24 self-start max-h-[calc(100vh-7rem)]">
+      <div className="w-96 flex-shrink-0 sticky top-28 self-start max-h-[calc(100vh-8rem)]">
         <ResumenTraslados />
       </div>
     </div>

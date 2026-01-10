@@ -33,7 +33,8 @@ export function ResumenTraslados() {
   // OBTENER PACIENTES EN TRASLADO
   // ============================================
   const pacientesEnTraslado = useMemo(() => {
-    const pacientes: PacienteTraslado[] = [];
+    // Usar Map para evitar duplicados por ID de paciente
+    const pacientesMap = new Map<string, PacienteTraslado>();
 
     // Estados de traslado entrante
     const estadosEntrantes = ['traslado_entrante', 'cama_en_espera'];
@@ -46,32 +47,17 @@ export function ResumenTraslados() {
       'derivacion_confirmada'
     ];
 
-    // Recorrer todas las camas
+    // PASO 1: Agregar pacientes SALIENTES (tienen prioridad)
     camas.forEach(cama => {
-      // Verificar si debe incluirse según permisos
-      // Si no es rol global y hay un servicio asignado, filtrar por servicio
+      // Verificar permisos
       if (!esRolGlobal && servicioUsuario && servicioUsuario !== cama.servicio_nombre) {
         return;
       }
 
-      // Pacientes entrantes
-      if (estadosEntrantes.includes(cama.estado)) {
-        const paciente = cama.paciente_entrante || cama.paciente;
-        if (paciente) {
-          pacientes.push({
-            ...paciente,
-            cama_identificador: cama.identificador,
-            servicio_nombre: cama.servicio_nombre,
-            tipo_traslado: 'entrante'
-          });
-        }
-      }
-
-      // Pacientes salientes
       if (estadosSalientes.includes(cama.estado)) {
         const paciente = cama.paciente;
-        if (paciente) {
-          pacientes.push({
+        if (paciente && paciente.id) {
+          pacientesMap.set(paciente.id, {
             ...paciente,
             cama_identificador: cama.identificador,
             servicio_nombre: cama.servicio_nombre,
@@ -81,20 +67,42 @@ export function ResumenTraslados() {
       }
     });
 
-    // Agregar pacientes de lista de espera (entrantes)
-    listaEspera.forEach(paciente => {
-      // Verificar permisos (aquí necesitamos verificar por el servicio requerido del paciente)
-      // Por ahora, los incluimos si es rol global o si no hay filtro de servicio
-      if (esRolGlobal || !servicioUsuario) {
-        pacientes.push({
-          ...paciente,
-          tipo_traslado: 'entrante'
-        });
+    // PASO 2: Agregar pacientes ENTRANTES de camas (solo si NO están ya en el mapa)
+    camas.forEach(cama => {
+      // Verificar permisos
+      if (!esRolGlobal && servicioUsuario && servicioUsuario !== cama.servicio_nombre) {
+        return;
+      }
+
+      if (estadosEntrantes.includes(cama.estado)) {
+        const paciente = cama.paciente_entrante || cama.paciente;
+        if (paciente && paciente.id && !pacientesMap.has(paciente.id)) {
+          pacientesMap.set(paciente.id, {
+            ...paciente,
+            cama_identificador: cama.identificador,
+            servicio_nombre: cama.servicio_nombre,
+            tipo_traslado: 'entrante'
+          });
+        }
       }
     });
 
-    // Ordenar por prioridad (mayor prioridad primero)
-    return pacientes.sort((a, b) => {
+    // PASO 3: Agregar pacientes de lista de espera (solo si NO están ya en el mapa)
+    listaEspera.forEach(paciente => {
+      // Verificar permisos
+      if (esRolGlobal || !servicioUsuario) {
+        if (paciente.id && !pacientesMap.has(paciente.id)) {
+          pacientesMap.set(paciente.id, {
+            ...paciente,
+            tipo_traslado: 'entrante'
+          });
+        }
+      }
+    });
+
+    // Convertir Map a array y ordenar por prioridad
+    const pacientesArray = Array.from(pacientesMap.values());
+    return pacientesArray.sort((a, b) => {
       const prioridadA = a.prioridad_calculada || 0;
       const prioridadB = b.prioridad_calculada || 0;
       return prioridadB - prioridadA;
@@ -120,14 +128,8 @@ export function ResumenTraslados() {
     const colorSexo = sexo === 'hombre' ? 'bg-blue-500' : 'bg-pink-500';
     const colorSexoLight = sexo === 'hombre' ? 'bg-blue-50 border-blue-200' : 'bg-pink-50 border-pink-200';
 
-    // Determinar estado del paciente
-    let estadoTexto = 'En espera de cama';
-    if (paciente.cama_identificador) {
-      estadoTexto = 'Cama asignada';
-    }
-    if (paciente.en_lista_espera) {
-      estadoTexto = 'En lista de espera';
-    }
+    // Determinar estado del paciente basado en si tiene cama asignada
+    const estadoTexto = paciente.cama_identificador ? 'Cama asignada' : 'En espera de cama';
 
     return (
       <button
