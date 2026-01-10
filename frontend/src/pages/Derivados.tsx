@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, User, Check, X, Eye, Building2, Send, ChevronDown, ChevronUp } from 'lucide-react';
+import { Clock, User, Check, X, Building2, Send, ChevronDown, ChevronUp } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useModal } from '../context/ModalContext';
 import { Badge, Spinner, Modal, Button } from '../components/common';
@@ -243,9 +243,13 @@ export function Derivados() {
           <tbody className="bg-white divide-y divide-gray-200">
             {derivadosExtendidos.map((item) => {
               const complejidad = getComplejidad(item);
-              
+
               return (
-                <tr key={item.paciente_id || item.paciente?.id} className="hover:bg-gray-50">
+                <tr
+                  key={item.paciente_id || item.paciente?.id}
+                  className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  onClick={() => handleVerDerivadoEntrada(item)}
+                >
                   <td className="px-4 py-3">
                     <div className="flex items-center">
                       <User className="w-8 h-8 text-gray-400 mr-3" />
@@ -293,14 +297,10 @@ export function Derivados() {
                   <td className="px-4 py-3 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => handleVerDerivadoEntrada(item)}
-                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded border border-gray-300"
-                        title="Ver detalles completos"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleAceptar(item.paciente_id || item.paciente?.id || '')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAceptar(item.paciente_id || item.paciente?.id || '');
+                        }}
                         disabled={procesando}
                         className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
                       >
@@ -308,7 +308,10 @@ export function Derivados() {
                         Aceptar
                       </button>
                       <button
-                        onClick={() => handleRechazar(item.paciente_id || item.paciente?.id || '')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRechazar(item.paciente_id || item.paciente?.id || '');
+                        }}
                         disabled={procesando}
                         className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50"
                       >
@@ -388,7 +391,11 @@ export function Derivados() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {derivadosEnviados.map((item) => (
-                    <tr key={item.paciente_id} className="hover:bg-gray-50">
+                    <tr
+                      key={item.paciente_id}
+                      className="hover:bg-gray-50 cursor-pointer transition-colors"
+                      onClick={() => handleVerDerivadoSalida(item)}
+                    >
                       <td className="px-4 py-3">
                         <div className="flex items-center">
                           <User className="w-8 h-8 text-gray-400 mr-3" />
@@ -427,14 +434,10 @@ export function Derivados() {
                       <td className="px-4 py-3 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => handleVerDerivadoSalida(item)}
-                            className="p-1.5 text-gray-600 hover:bg-gray-100 rounded border border-gray-300"
-                            title="Ver detalles completos"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleCancelarEnviado(item.paciente_id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCancelarEnviado(item.paciente_id);
+                            }}
                             disabled={procesando}
                             className="flex items-center gap-1 px-3 py-1.5 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 disabled:opacity-50"
                             title="Cancelar derivación y mantener paciente en este hospital"

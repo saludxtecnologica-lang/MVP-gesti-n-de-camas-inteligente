@@ -258,17 +258,17 @@ async def confirmar_egreso_derivacion(
 ):
     """Confirma el egreso del paciente del hospital de origen."""
     service = DerivacionService(session)
-    
+
     try:
-        resultado = service.confirmar_egreso(paciente_id)
-        
+        resultado = service.confirmar_egreso_derivacion(paciente_id)
+
         await manager.broadcast({
             "tipo": "egreso_confirmado",
             "paciente_id": paciente_id
         })
-        
+
         return MessageResponse(success=True, message=resultado.mensaje)
-        
+
     except PacienteNotFoundError:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
     except ValidationError as e:

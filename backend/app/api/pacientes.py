@@ -1011,16 +1011,21 @@ async def cancelar_busqueda_y_volver_a_cama(
 ):
     """
     Cancela la búsqueda de cama para un paciente y lo devuelve a su cama actual.
-    
-    Solo funciona si el paciente tiene una cama asignada (cama_id).
+
+    Para pacientes derivados (derivacion_estado == "aceptada"):
+    - Si NO tiene cama_destino_id: Usa DerivacionService.cancelar_derivacion_desde_lista_espera()
+    - Si tiene cama_destino_id: Usa el flujo normal (cancelar asignación)
+
+    Para pacientes normales:
+    - Solo funciona si el paciente tiene una cama asignada (cama_id).
     - Remueve al paciente de la lista de espera
     - Cambia el estado de la cama de CAMA_EN_ESPERA a OCUPADA
     - Limpia cama_destino_id si existe
-    
+
     Retorna error si el paciente no tiene cama asignada.
     """
     from sqlmodel import select
-    
+
     # Buscar paciente
     paciente = session.exec(select(Paciente).where(Paciente.id == paciente_id)).first()
     if not paciente:
@@ -1028,7 +1033,31 @@ async def cancelar_busqueda_y_volver_a_cama(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Paciente no encontrado"
         )
-    
+
+    # ============================================
+    # PACIENTE DERIVADO sin cama destino: Volver a lista de derivados
+    # ============================================
+    if paciente.derivacion_estado == "aceptada" and not paciente.cama_destino_id:
+        from app.services.derivacion_service import DerivacionService
+
+        try:
+            derivacion_service = DerivacionService(session)
+            resultado = derivacion_service.cancelar_derivacion_desde_lista_espera(paciente_id)
+
+            await manager.broadcast({
+                "tipo": "derivacion_cancelada_lista_espera",
+                "paciente_id": paciente_id,
+                "reload": True
+            })
+
+            return MessageResponse(success=True, message=resultado.mensaje)
+
+        except ValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # ============================================
+    # PACIENTE NORMAL o DERIVADO con cama destino: Flujo normal
+    # ============================================
     # Verificar que tiene cama asignada
     if not paciente.cama_id:
         raise HTTPException(

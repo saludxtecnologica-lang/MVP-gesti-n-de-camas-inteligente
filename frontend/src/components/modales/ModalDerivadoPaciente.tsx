@@ -13,12 +13,11 @@
  * Ubicación: src/components/modales/ModalDerivadoPaciente.tsx
  */
 import { useState } from 'react';
-import { 
-  User, FileText, Stethoscope, AlertTriangle, RefreshCw, Send, 
-  Building2, ArrowRight, Eye, Heart, Gavel, Files 
+import {
+  User, FileText, Stethoscope, AlertTriangle, Send,
+  Building2, ArrowRight, Eye, Heart, Gavel, Files
 } from 'lucide-react';
 import { Modal, Badge, Button } from '../common';
-import { useModal } from '../../context/ModalContext';
 import type { Paciente } from '../../types';
 import { 
   formatComplejidad, 
@@ -63,15 +62,13 @@ interface ModalDerivadoPacienteProps {
 // ============================================
 // COMPONENTE PRINCIPAL
 // ============================================
-export function ModalDerivadoPaciente({ 
-  isOpen, 
-  onClose, 
-  paciente, 
+export function ModalDerivadoPaciente({
+  isOpen,
+  onClose,
+  paciente,
   derivadoInfo,
-  tipo 
+  tipo
 }: ModalDerivadoPacienteProps) {
-  const { openModal } = useModal();
-  
   if (!paciente) return null;
 
   // Parsear todos los requerimientos
@@ -88,14 +85,6 @@ export function ModalDerivadoPaciente({
     ...reqBaja.map((req: string) => ({ req, nivel: 'Baja', color: 'yellow' })),
     ...reqNoDefinen.map((req: string) => ({ req, nivel: 'No define', color: 'gray' }))
   ];
-
-  // Handler para reevaluar
-  const handleReevaluar = () => {
-    if (paciente) {
-      onClose();
-      openModal('reevaluar', { paciente });
-    }
-  };
 
   // Título del modal según el tipo
   const titulo = tipo === 'entrada' 
@@ -382,15 +371,6 @@ export function ModalDerivadoPaciente({
           <Button variant="secondary" onClick={onClose}>
             Cerrar
           </Button>
-          {tipo === 'entrada' && (
-            <Button 
-              variant="primary" 
-              onClick={handleReevaluar}
-              icon={<RefreshCw className="w-4 h-4" />}
-            >
-              Reevaluar
-            </Button>
-          )}
         </div>
       </div>
     </Modal>
