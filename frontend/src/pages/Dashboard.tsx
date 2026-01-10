@@ -2,7 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { CamaCard } from '../components/cama';
 import { Spinner } from '../components/common';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX, Search, X } from 'lucide-react';
+import { useModal } from '../context/ModalContext';
+import { ResumenTraslados } from '../components/dashboard/ResumenTraslados';
 
 export function Dashboard() {
   const { 
@@ -28,6 +30,9 @@ export function Dashboard() {
   } = useApp();
 
   const [filtroServicio, setFiltroServicio] = useState<string>('todos');
+  const [busquedaPaciente, setBusquedaPaciente] = useState<string>('');
+  const [mostrarResultadosBusqueda, setMostrarResultadosBusqueda] = useState<boolean>(false);
+  const { openModal } = useModal();
 
   // ============================================
   // SINCRONIZAR FILTRO CON TTS
@@ -107,6 +112,75 @@ export function Dashboard() {
     });
     return Array.from(serviciosSet).sort();
   }, [camas, dataVersion]);
+
+  // ============================================
+  // BÚSQUEDA DE PACIENTES
+  // ============================================
+  const pacientesEncontrados = useMemo(() => {
+    if (!busquedaPaciente.trim()) return [];
+
+    const terminoBusqueda = busquedaPaciente.toLowerCase().trim();
+    const pacientes = new Map();
+
+    // Buscar en todas las camas
+    camas.forEach(cama => {
+      const paciente = cama.paciente || cama.paciente_entrante;
+      if (paciente) {
+        const nombreCoincide = paciente.nombre?.toLowerCase().includes(terminoBusqueda);
+        const rutCoincide = paciente.run?.toLowerCase().replace(/[.-]/g, '').includes(terminoBusqueda.replace(/[.-]/g, ''));
+
+        if (nombreCoincide || rutCoincide) {
+          // Usar el ID como key para evitar duplicados
+          if (!pacientes.has(paciente.id)) {
+            pacientes.set(paciente.id, {
+              ...paciente,
+              cama_identificador: cama.identificador,
+              servicio_nombre: cama.servicio_nombre
+            });
+          }
+        }
+      }
+    });
+
+    // Buscar en lista de espera
+    listaEspera.forEach(paciente => {
+      const nombreCoincide = paciente.nombre?.toLowerCase().includes(terminoBusqueda);
+      const rutCoincide = paciente.run?.toLowerCase().replace(/[.-]/g, '').includes(terminoBusqueda.replace(/[.-]/g, ''));
+
+      if (nombreCoincide || rutCoincide) {
+        if (!pacientes.has(paciente.id)) {
+          pacientes.set(paciente.id, paciente);
+        }
+      }
+    });
+
+    // Buscar en derivados
+    derivados.forEach(paciente => {
+      const nombreCoincide = paciente.nombre?.toLowerCase().includes(terminoBusqueda);
+      const rutCoincide = paciente.run?.toLowerCase().replace(/[.-]/g, '').includes(terminoBusqueda.replace(/[.-]/g, ''));
+
+      if (nombreCoincide || rutCoincide) {
+        if (!pacientes.has(paciente.id)) {
+          pacientes.set(paciente.id, paciente);
+        }
+      }
+    });
+
+    return Array.from(pacientes.values()).slice(0, 10); // Limitar a 10 resultados
+  }, [busquedaPaciente, camas, listaEspera, derivados, dataVersion]);
+
+  // Función para manejar clic en resultado de búsqueda
+  const handleClickResultado = (paciente: any) => {
+    openModal('verPaciente', { paciente });
+    setBusquedaPaciente('');
+    setMostrarResultadosBusqueda(false);
+  };
+
+  // Función para limpiar búsqueda
+  const limpiarBusqueda = () => {
+    setBusquedaPaciente('');
+    setMostrarResultadosBusqueda(false);
+  };
 
   // Filtrar camas
   const camasFiltradas = useMemo(() => {
@@ -192,9 +266,11 @@ export function Dashboard() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Stats y filtros */}
-      <div className="bg-white rounded-lg shadow p-4">
+    <div className="flex gap-4 h-full">
+      {/* Columna Principal - Camas */}
+      <div className="flex-grow space-y-4 overflow-y-auto">
+        {/* Stats y filtros */}
+        <div className="bg-white rounded-lg shadow p-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
           {/* Estadísticas */}
           <div className="flex gap-6">
@@ -220,14 +296,101 @@ export function Dashboard() {
             </div>
           </div>
 
+          {/* Buscador de Pacientes */}
+          <div className="relative">
+            <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white transition-all">
+              <Search className="w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Buscar paciente por nombre o RUT..."
+                value={busquedaPaciente}
+                onChange={(e) => {
+                  setBusquedaPaciente(e.target.value);
+                  setMostrarResultadosBusqueda(true);
+                }}
+                onFocus={() => setMostrarResultadosBusqueda(true)}
+                className="bg-transparent outline-none text-sm w-64"
+              />
+              {busquedaPaciente && (
+                <button
+                  onClick={limpiarBusqueda}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Resultados de búsqueda */}
+            {mostrarResultadosBusqueda && busquedaPaciente && (
+              <>
+                {/* Backdrop para cerrar al hacer clic fuera */}
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setMostrarResultadosBusqueda(false)}
+                />
+
+                {/* Dropdown de resultados */}
+                <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-20 max-h-96 overflow-y-auto">
+                  {pacientesEncontrados.length > 0 ? (
+                    <>
+                      <div className="px-3 py-2 text-xs text-gray-500 font-medium border-b">
+                        {pacientesEncontrados.length} resultado(s) encontrado(s)
+                      </div>
+                      {pacientesEncontrados.map((paciente: any) => (
+                        <button
+                          key={paciente.id}
+                          onClick={() => handleClickResultado(paciente)}
+                          className="w-full px-4 py-3 hover:bg-blue-50 transition-colors text-left border-b border-gray-100 last:border-b-0"
+                        >
+                          <div className="flex items-center gap-3">
+                            {/* Ícono de persona según sexo */}
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                              paciente.sexo === 'hombre' ? 'bg-blue-100 text-blue-600' : 'bg-pink-100 text-pink-600'
+                            }`}>
+                              <span className="text-lg">{paciente.sexo === 'hombre' ? '♂' : '♀'}</span>
+                            </div>
+                            <div className="flex-grow">
+                              <p className="font-semibold text-sm text-gray-800">{paciente.nombre}</p>
+                              <p className="text-xs text-gray-500">RUN: {paciente.run}</p>
+                              {paciente.cama_identificador && (
+                                <p className="text-xs text-gray-500">
+                                  Cama: {paciente.cama_identificador} • {paciente.servicio_nombre}
+                                </p>
+                              )}
+                              {paciente.en_lista_espera && (
+                                <span className="inline-block text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full mt-1">
+                                  En lista de espera
+                                </span>
+                              )}
+                              {paciente.derivacion_estado && (
+                                <span className="inline-block text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full mt-1">
+                                  Derivado
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                      No se encontraron pacientes con "{busquedaPaciente}"
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Indicadores y controles */}
           <div className="flex items-center gap-4 flex-wrap">
             {/* Indicador TTS */}
             <TTSIndicator />
-            
+
             {/* Indicador de WebSocket */}
             <div className="flex items-center gap-1.5">
-              <div 
+              <div
                 className={`w-2 h-2 rounded-full ${
                   wsConnected ? 'bg-green-500' : 'bg-red-500'
                 }`}
@@ -275,14 +438,14 @@ export function Dashboard() {
               {/* Renderizar salas individuales en grupos horizontales de hasta 3 */}
               {individualesAgrupadas.map((grupoSalas, grupoIndex) => (
                 <div key={`grupo-individual-${grupoIndex}-${dataVersion}`} className="p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
                     {grupoSalas.map(([sala, camasSala]) => {
                       const sexoSala = camasSala[0]?.sala_sexo_asignado;
-                      
+
                       return (
-                        <div 
-                          key={`sala-${sala}-${dataVersion}`} 
-                          className="border rounded-lg p-3 bg-gray-50"
+                        <div
+                          key={`sala-${sala}-${dataVersion}`}
+                          className="border rounded-lg p-3 bg-gray-50 min-h-[320px]"
                         >
                           {/* Header de la Sala Individual */}
                           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -355,7 +518,7 @@ export function Dashboard() {
                     </div>
                     
                     {/* Grid de camas de la sala */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
                       {camasSala.map(cama => (
                         <CamaCard key={`${cama.id}-${dataVersion}`} cama={cama} />
                       ))}
@@ -368,11 +531,17 @@ export function Dashboard() {
         );
       })}
 
-      {camasFiltradas.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-          No hay camas para mostrar
-        </div>
-      )}
+        {camasFiltradas.length === 0 && (
+          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+            No hay camas para mostrar
+          </div>
+        )}
+      </div>
+
+      {/* Columna Lateral - Resumen de Traslados */}
+      <div className="w-96 flex-shrink-0 sticky top-0 h-[calc(100vh-8rem)] overflow-hidden">
+        <ResumenTraslados />
+      </div>
     </div>
   );
 }

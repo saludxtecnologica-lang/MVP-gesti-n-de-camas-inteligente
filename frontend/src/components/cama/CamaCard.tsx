@@ -408,6 +408,24 @@ export function CamaCard({ cama }: CamaCardProps) {
   const botonesManual = modoManual ? (BOTONES_MANUAL[cama.estado] || []) : [];
   const botones = [...botonesEstado, ...botonesManual];
 
+  // ============================================
+  // DETERMINAR SI DEBE TENER ANIMACIÓN DE PULSO
+  // ============================================
+  const estadosDinamicos = [
+    EstadoCamaEnum.TRASLADO_ENTRANTE,
+    EstadoCamaEnum.TRASLADO_SALIENTE,
+    EstadoCamaEnum.TRASLADO_CONFIRMADO,
+    EstadoCamaEnum.CAMA_EN_ESPERA,
+    EstadoCamaEnum.ALTA_SUGERIDA,
+    EstadoCamaEnum.CAMA_ALTA,
+    EstadoCamaEnum.EN_LIMPIEZA,
+    EstadoCamaEnum.ESPERA_DERIVACION,
+    EstadoCamaEnum.DERIVACION_CONFIRMADA,
+    EstadoCamaEnum.RESERVADA
+  ];
+
+  const debeAnimarPulso = estadosDinamicos.includes(cama.estado as EstadoCamaEnum) || esperandoOxigeno;
+
   return (
     <>
       <div
@@ -417,11 +435,13 @@ export function CamaCard({ cama }: CamaCardProps) {
           relative backdrop-blur-sm
           min-h-[280px] max-h-[280px] flex flex-col
           ${pacienteMostrar ? 'cursor-pointer' : ''}
-          animate-fadeIn`}
+          animate-scaleEntrance
+          ${debeAnimarPulso ? 'animate-borderPulse' : ''}`}
         onClick={handleClickTarjeta}
         style={{
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-          animation: 'cardEntrance 0.3s ease-out'
+          boxShadow: debeAnimarPulso
+            ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
         }}
       >
         {/* Header */}
@@ -515,7 +535,28 @@ export function CamaCard({ cama }: CamaCardProps) {
         {/* Info paciente - Clickeable para abrir modal */}
         {pacienteMostrar && (
           <div className={`text-sm space-y-2 mb-3 flex-grow overflow-hidden ${esFallecido ? 'text-gray-200' : ''}`}>
-            <p className="font-semibold text-base truncate tracking-tight">{pacienteMostrar.nombre}</p>
+            <div className="flex items-center gap-3">
+              {/* Logo de persona según sexo */}
+              <div className={`flex-shrink-0 rounded-full p-2 ${
+                pacienteMostrar.sexo === 'hombre' ? 'bg-blue-500' : 'bg-pink-500'
+              }`}>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-6 h-6"
+                >
+                  {/* Cabeza */}
+                  <circle cx="12" cy="8" r="4" />
+                  {/* Torso */}
+                  <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
+                </svg>
+              </div>
+              <p className="font-semibold text-base truncate tracking-tight flex-grow">{pacienteMostrar.nombre}</p>
+            </div>
             <p className="text-xs opacity-75 font-mono">RUN: {pacienteMostrar.run}</p>
             <div className="flex flex-wrap gap-2 text-xs font-medium">
               <span className="px-2 py-0.5 bg-white bg-opacity-20 rounded-full">
