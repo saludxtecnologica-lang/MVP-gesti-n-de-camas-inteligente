@@ -266,9 +266,9 @@ export function Dashboard() {
   }
 
   return (
-    <div className="flex gap-4 h-full">
+    <div className="flex gap-4">
       {/* Columna Principal - Camas */}
-      <div className="flex-grow space-y-4 overflow-y-auto">
+      <div className="flex-grow space-y-4">
         {/* Stats y filtros */}
         <div className="bg-white rounded-lg shadow p-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
@@ -539,7 +539,7 @@ export function Dashboard() {
       </div>
 
       {/* Columna Lateral - Resumen de Traslados */}
-      <div className="w-96 flex-shrink-0 sticky top-0 h-[calc(100vh-8rem)] overflow-hidden">
+      <div className="w-96 flex-shrink-0 sticky top-24 self-start max-h-[calc(100vh-7rem)]">
         <ResumenTraslados />
       </div>
     </div>

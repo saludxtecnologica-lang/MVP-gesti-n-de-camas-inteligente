@@ -191,9 +191,9 @@ export function ResumenTraslados() {
   // RENDER
   // ============================================
   return (
-    <div className="bg-white rounded-lg shadow-lg border border-gray-200 h-full flex flex-col">
+    <div className="bg-white rounded-lg shadow-lg border border-gray-200 max-h-full flex flex-col">
       {/* Header */}
-      <div className="px-4 py-3 border-b bg-gradient-to-r from-blue-50 to-purple-50">
+      <div className="px-4 py-3 border-b bg-gradient-to-r from-blue-50 to-purple-50 flex-shrink-0">
         <h3 className="font-bold text-gray-800 flex items-center gap-2">
           <ArrowUpCircle className="w-5 h-5 text-blue-600" />
           Resumen de Traslados
