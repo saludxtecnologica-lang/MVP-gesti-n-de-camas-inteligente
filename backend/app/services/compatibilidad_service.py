@@ -549,15 +549,50 @@ class CompatibilidadService:
         - Optimizar el uso de recursos hospitalarios
 
         CORREGIDO: Pacientes con aislamiento individual que ya están en sala individual
-        del nivel correcto NO deben buscar otra cama.
+        del SERVICIO CORRECTO según su complejidad NO deben buscar otra cama.
+
+        Regla de negocio:
+        - Servicio AISLAMIENTO solo para pacientes de BAJA complejidad
+        - Pacientes ALTA complejidad con aislamiento → UCI (sala individual)
+        - Pacientes MEDIA complejidad con aislamiento → UTI (sala individual)
 
         Returns:
             True si el paciente debería buscar cama de su nivel correcto
         """
-        # Obtener complejidad del paciente
+        # Obtener complejidad del paciente primero
         complejidad_paciente = paciente.complejidad_requerida
         if not complejidad_paciente:
             complejidad_paciente = self.calcular_complejidad_paciente(paciente)
+
+        # CORRECCIÓN PROBLEMA 1: Verificar si es un caso de aislamiento individual
+        # en servicio compatible con la complejidad del paciente
+        requiere_individual = self.paciente_requiere_aislamiento_individual(paciente)
+        cama_es_individual = self.cama_es_aislamiento_individual(cama_actual)
+
+        if requiere_individual and cama_es_individual:
+            # Verificar si el servicio actual es compatible con la complejidad del paciente
+            servicios_compatibles = MAPEO_COMPLEJIDAD_SERVICIO.get(complejidad_paciente, [])
+
+            if cama_actual.sala and cama_actual.sala.servicio:
+                servicio_actual = cama_actual.sala.servicio.tipo
+
+                if servicio_actual in servicios_compatibles:
+                    # Paciente en sala individual del servicio CORRECTO según complejidad
+                    logger.info(
+                        f"Paciente {paciente.nombre} (complejidad {_obtener_complejidad_display(complejidad_paciente)}) "
+                        f"requiere aislamiento individual, ya está en sala individual de servicio "
+                        f"{servicio_actual.value} (compatible) - NO BUSCAR OTRA CAMA"
+                    )
+                    return False
+                else:
+                    # Paciente en sala individual pero servicio INCORRECTO
+                    # Ej: paciente UCI con aislamiento en servicio AISLAMIENTO
+                    logger.info(
+                        f"Paciente {paciente.nombre} (complejidad {_obtener_complejidad_display(complejidad_paciente)}) "
+                        f"está en servicio {servicio_actual.value} pero requiere servicio compatible: "
+                        f"{[s.value for s in servicios_compatibles]} - DEBE BUSCAR NUEVA CAMA"
+                    )
+                    # Continuar con verificación normal de complejidad
 
         # Obtener complejidad de la cama
         complejidad_cama = self.obtener_complejidad_maxima_cama(cama_actual)
@@ -570,20 +605,6 @@ class CompatibilidadService:
             f"nivel_paciente={nivel_paciente} ({_obtener_complejidad_display(complejidad_paciente)}), "
             f"nivel_cama={nivel_cama} ({_obtener_complejidad_display(complejidad_cama)})"
         )
-
-        # CORRECCIÓN PROBLEMA 1: Si el paciente requiere aislamiento individual
-        # y ya está en sala individual del nivel CORRECTO, no buscar otra cama.
-        # Esto evita traslados innecesarios entre salas de aislamiento.
-        if nivel_cama == nivel_paciente:
-            requiere_individual = self.paciente_requiere_aislamiento_individual(paciente)
-            cama_es_individual = self.cama_es_aislamiento_individual(cama_actual)
-
-            if requiere_individual and cama_es_individual:
-                logger.info(
-                    f"Paciente {paciente.nombre} requiere aislamiento individual, "
-                    f"ya está en sala individual del nivel correcto - NO BUSCAR OTRA CAMA"
-                )
-                return False
 
         # Si la cama es del nivel correcto o inferior, no hay problema
         if nivel_cama <= nivel_paciente:
