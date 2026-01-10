@@ -33,21 +33,23 @@ export function ResumenTraslados() {
   // OBTENER PACIENTES EN TRASLADO
   // ============================================
   const pacientesEnTraslado = useMemo(() => {
-    // Usar Map para evitar duplicados por ID de paciente
-    const pacientesMap = new Map<string, PacienteTraslado>();
+    const salientes: PacienteTraslado[] = [];
+    const entrantesMap = new Map<string, PacienteTraslado>(); // Map solo para entrantes
 
     // Estados de traslado entrante
     const estadosEntrantes = ['traslado_entrante', 'cama_en_espera'];
 
-    // Estados de traslado saliente
+    // Estados de traslado saliente (incluye fallecidos)
     const estadosSalientes = [
       'traslado_saliente',
       'traslado_confirmado',
       'espera_derivacion',
-      'derivacion_confirmada'
+      'derivacion_confirmada',
+      'fallecido'  // Pacientes fallecidos también son salientes
     ];
 
-    // PASO 1: Agregar pacientes SALIENTES (tienen prioridad)
+    // PASO 1: Agregar pacientes SALIENTES (sin eliminar duplicados)
+    // Un paciente puede estar saliendo de un servicio simultáneamente
     camas.forEach(cama => {
       // Verificar permisos
       if (!esRolGlobal && servicioUsuario && servicioUsuario !== cama.servicio_nombre) {
@@ -57,7 +59,7 @@ export function ResumenTraslados() {
       if (estadosSalientes.includes(cama.estado)) {
         const paciente = cama.paciente;
         if (paciente && paciente.id) {
-          pacientesMap.set(paciente.id, {
+          salientes.push({
             ...paciente,
             cama_identificador: cama.identificador,
             servicio_nombre: cama.servicio_nombre,
@@ -67,7 +69,7 @@ export function ResumenTraslados() {
       }
     });
 
-    // PASO 2: Agregar pacientes ENTRANTES de camas (solo si NO están ya en el mapa)
+    // PASO 2: Agregar pacientes ENTRANTES de camas (usar Map para evitar duplicados DENTRO de entrantes)
     camas.forEach(cama => {
       // Verificar permisos
       if (!esRolGlobal && servicioUsuario && servicioUsuario !== cama.servicio_nombre) {
@@ -76,8 +78,8 @@ export function ResumenTraslados() {
 
       if (estadosEntrantes.includes(cama.estado)) {
         const paciente = cama.paciente_entrante || cama.paciente;
-        if (paciente && paciente.id && !pacientesMap.has(paciente.id)) {
-          pacientesMap.set(paciente.id, {
+        if (paciente && paciente.id && !entrantesMap.has(paciente.id)) {
+          entrantesMap.set(paciente.id, {
             ...paciente,
             cama_identificador: cama.identificador,
             servicio_nombre: cama.servicio_nombre,
@@ -87,12 +89,12 @@ export function ResumenTraslados() {
       }
     });
 
-    // PASO 3: Agregar pacientes de lista de espera (solo si NO están ya en el mapa)
+    // PASO 3: Agregar pacientes de lista de espera SOLO si no están ya en entrantes
     listaEspera.forEach(paciente => {
       // Verificar permisos
       if (esRolGlobal || !servicioUsuario) {
-        if (paciente.id && !pacientesMap.has(paciente.id)) {
-          pacientesMap.set(paciente.id, {
+        if (paciente.id && !entrantesMap.has(paciente.id)) {
+          entrantesMap.set(paciente.id, {
             ...paciente,
             tipo_traslado: 'entrante'
           });
@@ -100,9 +102,12 @@ export function ResumenTraslados() {
       }
     });
 
-    // Convertir Map a array y ordenar por prioridad
-    const pacientesArray = Array.from(pacientesMap.values());
-    return pacientesArray.sort((a, b) => {
+    // Combinar salientes y entrantes
+    const entrantes = Array.from(entrantesMap.values());
+    const todos = [...salientes, ...entrantes];
+
+    // Ordenar por prioridad
+    return todos.sort((a, b) => {
       const prioridadA = a.prioridad_calculada || 0;
       const prioridadB = b.prioridad_calculada || 0;
       return prioridadB - prioridadA;
