@@ -390,11 +390,14 @@ class TrasladoService:
 
         Flujo:
         1. Cama destino vuelve a LIBRE
-        2. Si tiene cama origen, esta vuelve a OCUPADA
-        3. Si NO tiene cama origen (paciente nuevo/urgencias), vuelve a lista de espera
-
-        CORREGIDO PROBLEMA 2: Pacientes sin cama origen ahora vuelven a lista de espera
-        en lugar de eliminarse del sistema.
+        2. Si tiene cama origen en TRASLADO_CONFIRMADO:
+           - Cama origen pasa a TRASLADO_SALIENTE
+           - Paciente VUELVE a lista de espera para buscar otra cama
+        3. Si tiene cama origen en otro estado (OCUPADA):
+           - Cama origen vuelve a OCUPADA (flujo antiguo)
+           - Paciente sale de lista de espera
+        4. Si NO tiene cama origen (paciente nuevo/urgencias):
+           - Vuelve a lista de espera
 
         Args:
             paciente_id: ID del paciente
@@ -423,43 +426,90 @@ class TrasladoService:
             # Recalcular sexo de sala al cancelar asignación
             recalcular_sexo_sala_al_cancelar_asignacion(self.session, cama_destino)
 
-        # Remover de cola de prioridad en memoria
-        self._remover_de_cola_memoria(paciente)
-
         # Limpiar referencia a cama destino
         paciente.cama_destino_id = None
 
-        # CORRECCIÓN PROBLEMA 2: Diferenciar entre pacientes CON y SIN cama origen
+        # FLUJO DIFERENCIADO según estado de cama origen
         if paciente.cama_id:
-            # Paciente CON cama origen: restaurar a OCUPADA y sacar de lista de espera
             cama_origen = self.cama_repo.obtener_por_id(paciente.cama_id)
             if cama_origen:
-                cama_origen.estado = EstadoCamaEnum.OCUPADA
-                cama_origen.mensaje_estado = None
-                cama_origen.cama_asignada_destino = None
-                cama_origen.estado_updated_at = datetime.utcnow()
-                self.session.add(cama_origen)
+                # CASO 1: Cancelar desde TRASLADO_ENTRANTE con cama origen en TRASLADO_CONFIRMADO
+                # El paciente debe VOLVER a lista de espera para buscar otra cama
+                if cama_origen.estado == EstadoCamaEnum.TRASLADO_CONFIRMADO:
+                    # Cambiar cama origen a TRASLADO_SALIENTE
+                    cama_origen.estado = EstadoCamaEnum.TRASLADO_SALIENTE
+                    cama_origen.mensaje_estado = "Paciente buscando nueva cama"
+                    cama_origen.cama_asignada_destino = None
+                    cama_origen.estado_updated_at = datetime.utcnow()
+                    self.session.add(cama_origen)
 
-            # Sacar de lista de espera (vuelve a cama origen)
-            paciente.en_lista_espera = False
-            paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
-            paciente.timestamp_lista_espera = None
-            paciente.prioridad_calculada = 0.0
-            paciente.requiere_nueva_cama = False
+                    # Paciente VUELVE a lista de espera (no se remueve de la cola)
+                    # Si ya estaba en lista espera, mantenerlo
+                    if not paciente.en_lista_espera:
+                        from app.services.asignacion_service import AsignacionService
+                        paciente.requiere_nueva_cama = True
+                        paciente.en_lista_espera = True
+                        paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
+                        self.session.add(paciente)
+                        self.session.commit()
 
-            self.session.add(paciente)
-            self.session.commit()
+                        # Agregar a cola de prioridad
+                        asignacion_service = AsignacionService(self.session)
+                        asignacion_service.agregar_a_cola(paciente)
+                        self.session.commit()
 
-            logger.info(f"Traslado cancelado para {paciente.nombre} - vuelve a cama origen")
+                        logger.info(
+                            f"Traslado cancelado para {paciente.nombre} - "
+                            f"cama origen a TRASLADO_SALIENTE, paciente vuelve a lista de espera"
+                        )
+                    else:
+                        self.session.add(paciente)
+                        self.session.commit()
+                        logger.info(
+                            f"Traslado cancelado para {paciente.nombre} - "
+                            f"cama origen a TRASLADO_SALIENTE, paciente permanece en lista de espera"
+                        )
 
-            return ResultadoTraslado(
-                exito=True,
-                mensaje="Traslado cancelado - paciente vuelve a cama origen",
-                paciente_id=paciente_id
-            )
+                    return ResultadoTraslado(
+                        exito=True,
+                        mensaje="Traslado cancelado - paciente vuelve a lista de espera",
+                        paciente_id=paciente_id
+                    )
+                else:
+                    # CASO 2: Cama origen en otro estado (OCUPADA, CAMA_EN_ESPERA, etc.)
+                    # Flujo antiguo: volver a OCUPADA y sacar de lista espera
+                    cama_origen.estado = EstadoCamaEnum.OCUPADA
+                    cama_origen.mensaje_estado = None
+                    cama_origen.cama_asignada_destino = None
+                    cama_origen.estado_updated_at = datetime.utcnow()
+                    self.session.add(cama_origen)
+
+                    # Remover de cola de prioridad en memoria
+                    self._remover_de_cola_memoria(paciente)
+
+                    # Sacar de lista de espera (vuelve a cama origen)
+                    paciente.en_lista_espera = False
+                    paciente.estado_lista_espera = EstadoListaEsperaEnum.ESPERANDO
+                    paciente.timestamp_lista_espera = None
+                    paciente.prioridad_calculada = 0.0
+                    paciente.requiere_nueva_cama = False
+
+                    self.session.add(paciente)
+                    self.session.commit()
+
+                    logger.info(f"Traslado cancelado para {paciente.nombre} - vuelve a cama origen OCUPADA")
+
+                    return ResultadoTraslado(
+                        exito=True,
+                        mensaje="Traslado cancelado - paciente vuelve a cama origen",
+                        paciente_id=paciente_id
+                    )
         else:
-            # Paciente SIN cama origen (nuevo/urgencias): volver a lista de espera
+            # CASO 3: Paciente SIN cama origen (nuevo/urgencias): volver a lista de espera
             from app.services.asignacion_service import AsignacionService
+
+            # Remover de cola de prioridad en memoria
+            self._remover_de_cola_memoria(paciente)
 
             # Marcar que requiere nueva cama
             paciente.requiere_nueva_cama = True
