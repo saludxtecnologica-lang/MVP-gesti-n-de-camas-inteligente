@@ -1086,12 +1086,25 @@ async def cancelar_busqueda_y_volver_a_cama(
                 session.add(cama_destino)
                 logger.info(f"Cama destino {cama_destino.identificador} liberada")
             paciente.cama_destino_id = None
-        
-        # Cambiar estado de la cama actual a OCUPADA
+
+        # Cambiar estado de la cama origen según su estado actual
         if cama:
-            cama.estado = EstadoCamaEnum.OCUPADA
-            session.add(cama)
-            logger.info(f"Cama {cama.identificador} cambiada a OCUPADA")
+            # Si la cama estaba en traslado (TRASLADO_SALIENTE o TRASLADO_CONFIRMADO),
+            # volver a CAMA_EN_ESPERA (paciente cancela búsqueda de traslado interno)
+            if cama.estado in [EstadoCamaEnum.TRASLADO_SALIENTE, EstadoCamaEnum.TRASLADO_CONFIRMADO]:
+                cama.estado = EstadoCamaEnum.CAMA_EN_ESPERA
+                cama.mensaje_estado = "Paciente requiere nueva cama"
+                cama.cama_asignada_destino = None
+                paciente.requiere_nueva_cama = True
+                session.add(cama)
+                logger.info(f"Cama {cama.identificador} cambiada a CAMA_EN_ESPERA (traslado interno cancelado)")
+            else:
+                # Para otros estados, volver a OCUPADA (flujo normal)
+                cama.estado = EstadoCamaEnum.OCUPADA
+                cama.cama_asignada_destino = None
+                paciente.requiere_nueva_cama = False
+                session.add(cama)
+                logger.info(f"Cama {cama.identificador} cambiada a OCUPADA")
         
         # Actualizar estado del paciente
         paciente.en_lista_espera = False
