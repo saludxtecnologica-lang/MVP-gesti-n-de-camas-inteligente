@@ -103,15 +103,15 @@ const BOTONES_MANUAL: Record<string, BotonConfig[]> = {
 };
 
 // ============================================
-// ESTILOS DE BOTONES - DISEÑO MODERNO
+// ESTILOS DE BOTONES - DISEÑO APPLE STYLE
 // ============================================
 
 const estilosBotones: Record<string, string> = {
-  primary: 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-700',
-  secondary: 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300',
-  success: 'bg-green-600 hover:bg-green-700 text-white border border-green-700',
-  danger: 'bg-red-600 hover:bg-red-700 text-white border border-red-700',
-  warning: 'bg-yellow-500 hover:bg-yellow-600 text-gray-900 border border-yellow-600'
+  primary: 'bg-blue-500 hover:bg-blue-600 text-white shadow-sm hover:shadow border-0',
+  secondary: 'bg-gray-50 hover:bg-gray-100 text-gray-700 shadow-sm hover:shadow border border-gray-200',
+  success: 'bg-green-500 hover:bg-green-600 text-white shadow-sm hover:shadow border-0',
+  danger: 'bg-red-500 hover:bg-red-600 text-white shadow-sm hover:shadow border-0',
+  warning: 'bg-yellow-400 hover:bg-yellow-500 text-gray-900 shadow-sm hover:shadow border-0'
 };
 
 // ============================================
@@ -429,116 +429,73 @@ export function CamaCard({ cama }: CamaCardProps) {
   return (
     <>
       <div
-        className={`rounded-2xl border-2 p-4 ${estadoColor}
-          transition-all duration-300 ease-in-out
-          hover:shadow-2xl hover:scale-[1.02] hover:-translate-y-1
+        className={`rounded-3xl border p-5 ${estadoColor}
+          transition-all duration-500 ease-out
+          hover:shadow-xl hover:scale-[1.01] hover:-translate-y-0.5
           relative backdrop-blur-sm
-          min-h-[280px] max-h-[280px] flex flex-col
+          min-h-[340px] max-h-[340px] flex flex-col
           ${pacienteMostrar ? 'cursor-pointer' : ''}
           animate-scaleEntrance
           ${debeAnimarPulso ? 'animate-borderPulse' : ''}`}
         onClick={handleClickTarjeta}
         style={{
           boxShadow: debeAnimarPulso
-            ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            ? '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)'
+            : '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05)'
         }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="font-bold text-xl tracking-tight">{cama.identificador}</span>
-            {cama.servicio_nombre && (
-              <span className="text-xs opacity-60 font-medium">{cama.servicio_nombre}</span>
-            )}
-          </div>
+        {/* ============================================ */}
+        {/* LÍNEA 1: Identificador de Cama + Estado */}
+        {/* ============================================ */}
+        <div className="flex items-start justify-between mb-2 flex-shrink-0">
+          <h3 className="font-semibold text-2xl tracking-tight leading-tight">
+            {cama.identificador}
+          </h3>
           <div className="flex items-center gap-2">
-            {/* ============================================ */}
-            {/* ÍCONO DE CRUZ PARA ESTADO FALLECIDO */}
-            {/* ============================================ */}
             {esFallecido && (
-              <div className="p-1.5 bg-gray-700 rounded-full shadow-md transition-all duration-200 hover:scale-110" title="Paciente fallecido">
-                <Cross className="w-4 h-4 text-white" />
+              <div className="p-1 bg-gray-700 rounded-full shadow-sm" title="Paciente fallecido">
+                <Cross className="w-3.5 h-3.5 text-white" />
               </div>
             )}
-
             <Badge variant={cama.estado === 'libre' ? 'success' : esFallecido ? 'default' : 'default'}>
               {formatEstado(cama.estado)}
             </Badge>
-
-            {/* ============================================ */}
-            {/* BOTÓN DE REEVALUAR - No mostrar en fallecido */}
-            {/* ============================================ */}
             {mostrarBotonReevaluar && (
               <button
                 onClick={handleClickReevaluar}
-                className="p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600
-                  transition-all duration-200 border border-blue-200 shadow-sm
-                  hover:shadow-md hover:scale-110 active:scale-95"
+                className="p-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600
+                  transition-all duration-300 border border-blue-100 hover:border-blue-200
+                  hover:shadow-sm active:scale-95"
                 title="Reevaluar paciente"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
         </div>
 
-        {/* Badges especiales */}
-        {(tieneCasosEspeciales || esDerivado || esperandoOxigeno || esFallecido) && (
-          <div className="flex flex-wrap gap-2 mb-3 flex-shrink-0">
-            {/* ============================================ */}
-            {/* BADGE DE FALLECIDO */}
-            {/* ============================================ */}
-            {esFallecido && (
-              <Badge variant="default" className="bg-gray-700 text-white shadow-sm">
-                <Cross className="w-3 h-3 mr-1" />
-                Fallecido
-              </Badge>
-            )}
-
-            {/* Íconos de casos especiales */}
-            {iconosCasosEspeciales.length > 0 && !esFallecido && (
-              <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 rounded-full border border-amber-200 shadow-sm">
-                {iconosCasosEspeciales.map((config: { icono: React.ElementType; color: string }, idx: number) => {
-                  const IconComponent = config.icono;
-                  return (
-                    <IconComponent
-                      key={idx}
-                      className={`w-4 h-4 ${config.color}`}
-                      title={casosEspeciales[idx]}
-                    />
-                  );
-                })}
-              </div>
-            )}
-            {tieneCasosEspeciales && iconosCasosEspeciales.length === 0 && !esFallecido && (
-              <Badge variant="warning" className="shadow-sm">
-                <AlertTriangle className="w-3 h-3 mr-1" />
-                Caso Especial
-              </Badge>
-            )}
-            {esDerivado && !esFallecido && (
-              <Badge variant="purple" className="shadow-sm">
-                <Send className="w-3 h-3 mr-1" />
-                Derivado
-              </Badge>
-            )}
-            {esperandoOxigeno && !esFallecido && (
-              <Badge variant="info" className="shadow-sm">
-                <Wind className="w-3 h-3 mr-1" />
-                Evaluando O₂
-              </Badge>
-            )}
+        {/* ============================================ */}
+        {/* LÍNEA 2: Servicio */}
+        {/* ============================================ */}
+        {cama.servicio_nombre && (
+          <div className="mb-3 flex-shrink-0">
+            <span className="text-xs font-medium opacity-60 tracking-wide uppercase">
+              {cama.servicio_nombre}
+            </span>
           </div>
         )}
 
-        {/* Info paciente - Clickeable para abrir modal */}
+        {/* ============================================ */}
+        {/* LÍNEA 3 y 4: Logo de Persona + Nombre (2 líneas) + RUT */}
+        {/* ============================================ */}
         {pacienteMostrar && (
-          <div className={`text-sm space-y-2 mb-3 flex-grow overflow-hidden ${esFallecido ? 'text-gray-200' : ''}`}>
-            <div className="flex items-center gap-3">
-              {/* Logo de persona según sexo */}
-              <div className={`flex-shrink-0 rounded-full p-2 ${
-                pacienteMostrar.sexo === 'hombre' ? 'bg-blue-500' : 'bg-pink-500'
+          <div className={`mb-3 flex-shrink-0 ${esFallecido ? 'text-gray-200' : ''}`}>
+            <div className="flex items-start gap-3 mb-2">
+              {/* Logo de persona - tamaño de 2 líneas */}
+              <div className={`flex-shrink-0 rounded-full p-2.5 shadow-sm ${
+                pacienteMostrar.sexo === 'hombre'
+                  ? 'bg-gradient-to-br from-blue-500 to-blue-600'
+                  : 'bg-gradient-to-br from-pink-500 to-pink-600'
               }`}>
                 <svg
                   viewBox="0 0 24 24"
@@ -547,117 +504,188 @@ export function CamaCard({ cama }: CamaCardProps) {
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="w-6 h-6"
+                  className="w-9 h-9"
                 >
-                  {/* Cabeza */}
                   <circle cx="12" cy="8" r="4" />
-                  {/* Torso */}
                   <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
                 </svg>
               </div>
-              <p className="font-semibold text-base truncate tracking-tight flex-grow">{pacienteMostrar.nombre}</p>
+              {/* Nombre - máximo 2 líneas */}
+              <div className="flex-grow min-w-0">
+                <p className="font-semibold text-base leading-snug line-clamp-2">
+                  {pacienteMostrar.nombre}
+                </p>
+              </div>
             </div>
-            <p className="text-xs opacity-75 font-mono">RUN: {pacienteMostrar.run}</p>
-            <div className="flex flex-wrap gap-2 text-xs font-medium">
-              <span className="px-2 py-0.5 bg-white bg-opacity-20 rounded-full">
-                {pacienteMostrar.edad} años
+
+            {/* RUT debajo del nombre */}
+            <p className="text-xs opacity-70 font-mono mb-1.5 pl-[52px]">
+              {pacienteMostrar.run}
+            </p>
+          </div>
+        )}
+
+        {/* ============================================ */}
+        {/* LÍNEA 5: Solo Edad (sin complejidad) */}
+        {/* ============================================ */}
+        {pacienteMostrar && (
+          <div className="mb-3 flex-shrink-0 pl-[52px]">
+            <span className="inline-flex items-center text-xs font-medium px-2.5 py-1 bg-white bg-opacity-20 rounded-full">
+              {pacienteMostrar.edad} años
+            </span>
+          </div>
+        )}
+
+        {/* ============================================ */}
+        {/* LÍNEA 6: Logos Especiales (Badges) */}
+        {/* ============================================ */}
+        {(tieneCasosEspeciales || esDerivado || esperandoOxigeno || esFallecido ||
+          (pacienteMostrar?.tipo_aislamiento && pacienteMostrar.tipo_aislamiento !== 'ninguno')) && (
+          <div className="flex flex-wrap gap-1.5 mb-3 flex-shrink-0">
+            {esFallecido && (
+              <Badge variant="default" className="bg-gray-700 text-white shadow-sm text-xs">
+                <Cross className="w-3 h-3 mr-1" />
+                Fallecido
+              </Badge>
+            )}
+            {iconosCasosEspeciales.length > 0 && !esFallecido && (
+              <div className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 rounded-full border border-amber-200 shadow-sm">
+                {iconosCasosEspeciales.map((config: { icono: React.ElementType; color: string }, idx: number) => {
+                  const IconComponent = config.icono;
+                  return (
+                    <IconComponent
+                      key={idx}
+                      className={`w-3.5 h-3.5 ${config.color}`}
+                      title={casosEspeciales[idx]}
+                    />
+                  );
+                })}
+              </div>
+            )}
+            {tieneCasosEspeciales && iconosCasosEspeciales.length === 0 && !esFallecido && (
+              <Badge variant="warning" className="shadow-sm text-xs">
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                Caso Especial
+              </Badge>
+            )}
+            {esDerivado && !esFallecido && (
+              <Badge variant="purple" className="shadow-sm text-xs">
+                <Send className="w-3 h-3 mr-1" />
+                Derivado
+              </Badge>
+            )}
+            {esperandoOxigeno && !esFallecido && (
+              <Badge variant="info" className="shadow-sm text-xs">
+                <Wind className="w-3 h-3 mr-1" />
+                Evaluando O₂
+              </Badge>
+            )}
+            {pacienteMostrar?.tipo_aislamiento && pacienteMostrar.tipo_aislamiento !== 'ninguno' && !esFallecido && (
+              <span className="inline-flex items-center text-xs font-medium px-2.5 py-1 bg-red-50 text-red-700 rounded-full border border-red-200 shadow-sm">
+                {formatTipoAislamiento(pacienteMostrar.tipo_aislamiento)}
               </span>
-              <span className="px-2 py-0.5 bg-white bg-opacity-20 rounded-full">
-                {formatComplejidad(pacienteMostrar.complejidad_requerida || pacienteMostrar.complejidad || 'ninguna')}
-              </span>
-              {pacienteMostrar.tipo_aislamiento && pacienteMostrar.tipo_aislamiento !== 'ninguno' && !esFallecido && (
-                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full border border-red-300">
-                  {formatTipoAislamiento(pacienteMostrar.tipo_aislamiento)}
-                </span>
-              )}
-            </div>
-            {/* Mostrar causa de fallecimiento si está disponible */}
-            {esFallecido && pacienteMostrar.causa_fallecimiento && (
-              <p className="text-xs text-gray-300 mt-2 italic px-2 py-1 bg-gray-700 bg-opacity-50 rounded">
-                Causa: {pacienteMostrar.causa_fallecimiento}
-              </p>
             )}
           </div>
         )}
 
-        {/* Mensaje estado - Especial para evaluación de oxígeno */}
-        {esperandoOxigeno && !esFallecido ? (
-          <div className="text-xs mb-2 p-3 bg-cyan-50 rounded-xl border border-cyan-200 text-cyan-800 shadow-sm flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <Wind className="w-4 h-4" />
-              <span className="font-semibold">Evaluando descalaje de oxígeno</span>
+        {/* ============================================ */}
+        {/* LÍNEA 7: Espacio para Mensajes (hasta 3) */}
+        {/* ============================================ */}
+        <div className="mb-3 flex-shrink-0 space-y-1.5" style={{ minHeight: '60px' }}>
+          {/* Mensaje 1: Evaluación de oxígeno */}
+          {esperandoOxigeno && !esFallecido && (
+            <div className="text-xs p-2.5 bg-cyan-50 rounded-xl border border-cyan-200 text-cyan-800 shadow-sm">
+              <div className="flex items-center gap-1.5">
+                <Wind className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="font-medium text-xs leading-tight">Evaluando descalaje de oxígeno</span>
+              </div>
             </div>
-            <p className="mt-1.5 text-cyan-700 text-xs">
-              Esperando confirmación antes de buscar nueva cama
-            </p>
-          </div>
-        ) : esFallecido ? (
-          <div className="text-xs mb-2 p-3 bg-gray-700 bg-opacity-50 rounded-xl border border-gray-600 text-gray-200 shadow-sm flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <Cross className="w-4 h-4" />
-              <span className="font-semibold">Cuidados postmortem en curso</span>
+          )}
+
+          {/* Mensaje 2: Fallecido */}
+          {esFallecido && (
+            <div className="text-xs p-2.5 bg-gray-700 bg-opacity-50 rounded-xl border border-gray-600 text-gray-200 shadow-sm">
+              <div className="flex items-center gap-1.5">
+                <Cross className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="font-medium text-xs leading-tight">Cuidados postmortem en curso</span>
+              </div>
             </div>
-          </div>
-        ) : cama.mensaje_estado ? (
-          <p className="text-xs italic mb-2 opacity-75 px-2 py-1 bg-white bg-opacity-10 rounded flex-shrink-0">
-            {cama.mensaje_estado}
-          </p>
-        ) : null}
+          )}
 
-        {/* Motivo bloqueo */}
-        {cama.estado === 'bloqueada' && cama.bloqueada_motivo && (
-          <p className="text-xs text-red-700 mb-2 px-2 py-1 bg-red-50 rounded border border-red-200 flex-shrink-0">
-            <span className="font-semibold">Motivo:</span> {cama.bloqueada_motivo}
-          </p>
-        )}
+          {/* Mensaje 3: Causa de fallecimiento */}
+          {esFallecido && pacienteMostrar?.causa_fallecimiento && (
+            <div className="text-xs p-2.5 bg-gray-700 bg-opacity-50 rounded-xl border border-gray-600 text-gray-300 italic">
+              <span className="text-xs leading-tight">Causa: {pacienteMostrar.causa_fallecimiento}</span>
+            </div>
+          )}
 
-        {/* Botones */}
-        {botones.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-auto flex-shrink-0">
-            {botones.map((config) => {
-              const Icon = config.icono;
-              const isLoading = config.accion === 'buscarCama' && verificandoDisponibilidad;
+          {/* Mensaje alternativo: Estado de la cama */}
+          {!esperandoOxigeno && !esFallecido && cama.mensaje_estado && (
+            <div className="text-xs p-2.5 bg-white bg-opacity-10 rounded-xl italic opacity-75">
+              <span className="text-xs leading-tight">{cama.mensaje_estado}</span>
+            </div>
+          )}
 
-              return (
-                <button
-                  key={config.key}
-                  onClick={(e) => {
-                    e.stopPropagation(); // Evitar que se abra el modal de paciente
-                    ejecutarAccion(config);
-                  }}
-                  disabled={isLoading}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg
-                    transition-all duration-200 shadow-sm hover:shadow-md
-                    active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
-                    ${estilosBotones[config.tipo]}`}
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Icon className="w-3.5 h-3.5" />
-                  )}
-                  {isLoading ? 'Verificando...' : config.texto}
-                </button>
-              );
-            })}
-          </div>
-        )}
+          {/* Mensaje alternativo: Motivo de bloqueo */}
+          {cama.estado === 'bloqueada' && cama.bloqueada_motivo && (
+            <div className="text-xs p-2.5 bg-red-50 rounded-xl border border-red-200 text-red-700">
+              <span className="font-semibold">Motivo:</span> {cama.bloqueada_motivo}
+            </div>
+          )}
+        </div>
 
-        {/* Botón omitir pausa de oxígeno */}
-        {esperandoOxigeno && paciente && !esFallecido && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              actions.handleOmitirPausaOxigeno(paciente.id);
-            }}
-            className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium
-              rounded-lg bg-teal-600 hover:bg-teal-700 text-white
-              transition-all duration-200 shadow-sm hover:shadow-md active:scale-95 flex-shrink-0"
-          >
-            <Clock className="w-4 h-4" />
-            Omitir espera O₂ y buscar cama
-          </button>
-        )}
+        {/* ============================================ */}
+        {/* LÍNEA 8: Botones de Acción */}
+        {/* ============================================ */}
+        <div className="mt-auto flex-shrink-0 space-y-2">
+          {/* Botones principales */}
+          {botones.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {botones.map((config) => {
+                const Icon = config.icono;
+                const isLoading = config.accion === 'buscarCama' && verificandoDisponibilidad;
+
+                return (
+                  <button
+                    key={config.key}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      ejecutarAccion(config);
+                    }}
+                    disabled={isLoading}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl
+                      transition-all duration-300 shadow-sm hover:shadow-md
+                      active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+                      ${estilosBotones[config.tipo]}`}
+                  >
+                    {isLoading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Icon className="w-3.5 h-3.5" />
+                    )}
+                    {isLoading ? 'Verificando...' : config.texto}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Botón omitir pausa de oxígeno */}
+          {esperandoOxigeno && paciente && !esFallecido && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                actions.handleOmitirPausaOxigeno(paciente.id);
+              }}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium
+                rounded-xl bg-teal-600 hover:bg-teal-700 text-white
+                transition-all duration-300 shadow-sm hover:shadow-md active:scale-95"
+            >
+              <Clock className="w-4 h-4" />
+              Omitir espera O₂ y buscar cama
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Modal de búsqueda de cama en red */}
