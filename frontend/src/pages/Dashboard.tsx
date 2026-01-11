@@ -270,46 +270,46 @@ export function Dashboard() {
       {/* Columna Principal - Camas */}
       <div className="flex-grow space-y-4">
         {/* Stats y filtros */}
-        <div className="bg-white rounded-lg shadow p-4">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          {/* Estadísticas */}
-          <div className="flex gap-6">
+        <div className="bg-white rounded-lg shadow p-3">
+        <div className="flex items-center justify-between gap-3">
+          {/* Estadísticas - Compactas */}
+          <div className="flex gap-4">
             <div className="text-center">
-              <p className="text-2xl font-bold text-gray-800">{stats.total}</p>
+              <p className="text-xl font-bold text-gray-800">{stats.total}</p>
               <p className="text-xs text-gray-500">Total</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-green-600">{stats.libres}</p>
+              <p className="text-xl font-bold text-green-600">{stats.libres}</p>
               <p className="text-xs text-gray-500">Libres</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-blue-600">{stats.ocupadas}</p>
+              <p className="text-xl font-bold text-blue-600">{stats.ocupadas}</p>
               <p className="text-xs text-gray-500">Ocupadas</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-yellow-600">{stats.traslado}</p>
-              <p className="text-xs text-gray-500">En Traslado</p>
+              <p className="text-xl font-bold text-yellow-600">{stats.traslado}</p>
+              <p className="text-xs text-gray-500">Traslado</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-red-600">{stats.bloqueadas}</p>
+              <p className="text-xl font-bold text-red-600">{stats.bloqueadas}</p>
               <p className="text-xs text-gray-500">Bloqueadas</p>
             </div>
           </div>
 
-          {/* Buscador de Pacientes */}
-          <div className="relative">
-            <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white transition-all">
-              <Search className="w-4 h-4 text-gray-400" />
+          {/* Buscador de Pacientes - Compacto */}
+          <div className="relative flex-shrink-0">
+            <div className="flex items-center gap-2 border rounded-lg px-2 py-1.5 bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500 focus-within:bg-white transition-all">
+              <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <input
                 type="text"
-                placeholder="Buscar paciente por nombre o RUT..."
+                placeholder="Buscar paciente..."
                 value={busquedaPaciente}
                 onChange={(e) => {
                   setBusquedaPaciente(e.target.value);
                   setMostrarResultadosBusqueda(true);
                 }}
                 onFocus={() => setMostrarResultadosBusqueda(true)}
-                className="bg-transparent outline-none text-sm w-64"
+                className="bg-transparent outline-none text-sm w-48"
               />
               {busquedaPaciente && (
                 <button
@@ -383,32 +383,32 @@ export function Dashboard() {
             )}
           </div>
 
-          {/* Indicadores y controles */}
-          <div className="flex items-center gap-4 flex-wrap">
+          {/* Indicadores y controles - Compactos */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             {/* Indicador TTS */}
             <TTSIndicator />
 
             {/* Indicador de WebSocket */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1">
               <div
                 className={`w-2 h-2 rounded-full ${
                   wsConnected ? 'bg-green-500' : 'bg-red-500'
                 }`}
               />
               <span className="text-xs text-gray-500">
-                {wsConnected ? 'Conectado' : 'Desconectado'}
+                {wsConnected ? 'OK' : 'OFF'}
               </span>
             </div>
 
             {/* Filtro de servicio */}
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Servicio:</label>
+            <div className="flex items-center gap-1">
+              <label className="text-xs text-gray-600">Servicio:</label>
               <select
                 value={filtroServicio}
                 onChange={(e) => setFiltroServicio(e.target.value)}
-                className="border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500"
+                className="border rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
               >
-                <option value="todos">Todos los servicios</option>
+                <option value="todos">Todos</option>
                 {servicios.map(servicio => (
                   <option key={servicio} value={servicio}>{servicio}</option>
                 ))}
