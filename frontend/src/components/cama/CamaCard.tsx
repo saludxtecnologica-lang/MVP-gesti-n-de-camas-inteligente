@@ -460,17 +460,6 @@ export function CamaCard({ cama }: CamaCardProps) {
             <Badge variant={cama.estado === 'libre' ? 'success' : esFallecido ? 'default' : 'default'}>
               {formatEstado(cama.estado)}
             </Badge>
-            {mostrarBotonReevaluar && (
-              <button
-                onClick={handleClickReevaluar}
-                className="p-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600
-                  transition-all duration-300 border border-blue-100 hover:border-blue-200
-                  hover:shadow-sm active:scale-95"
-                title="Reevaluar paciente"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
         </div>
 
@@ -486,13 +475,13 @@ export function CamaCard({ cama }: CamaCardProps) {
         )}
 
         {/* ============================================ */}
-        {/* LÍNEA 3 y 4: Logo de Persona + Nombre (2 líneas) + RUT */}
+        {/* LÍNEA 3-5: Logo + Nombre + RUT + Edad */}
         {/* ============================================ */}
         {pacienteMostrar && (
           <div className={`mb-3 flex-shrink-0 ${esFallecido ? 'text-gray-200' : ''}`}>
-            <div className="flex items-start gap-3 mb-2">
-              {/* Logo de persona - tamaño de 2 líneas */}
-              <div className={`flex-shrink-0 rounded-full p-2.5 shadow-sm ${
+            <div className="flex items-center gap-3 mb-2">
+              {/* Logo de persona - más grande */}
+              <div className={`flex-shrink-0 rounded-full p-3 shadow-sm ${
                 pacienteMostrar.sexo === 'hombre'
                   ? 'bg-gradient-to-br from-blue-500 to-blue-600'
                   : 'bg-gradient-to-br from-pink-500 to-pink-600'
@@ -504,35 +493,29 @@ export function CamaCard({ cama }: CamaCardProps) {
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="w-9 h-9"
+                  className="w-12 h-12"
                 >
                   <circle cx="12" cy="8" r="4" />
                   <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
                 </svg>
               </div>
-              {/* Nombre - máximo 2 líneas */}
+              {/* Nombre - una sola línea con truncate */}
               <div className="flex-grow min-w-0">
-                <p className="font-semibold text-base leading-snug line-clamp-2">
+                <p className="font-bold text-xl leading-tight truncate">
                   {pacienteMostrar.nombre}
                 </p>
               </div>
             </div>
 
-            {/* RUT debajo del nombre */}
-            <p className="text-xs opacity-70 font-mono mb-1.5 pl-[52px]">
-              {pacienteMostrar.run}
-            </p>
-          </div>
-        )}
-
-        {/* ============================================ */}
-        {/* LÍNEA 5: Solo Edad (sin complejidad) */}
-        {/* ============================================ */}
-        {pacienteMostrar && (
-          <div className="mb-3 flex-shrink-0 pl-[52px]">
-            <span className="inline-flex items-center text-xs font-medium px-2.5 py-1 bg-white bg-opacity-20 rounded-full">
-              {pacienteMostrar.edad} años
-            </span>
+            {/* RUT y Edad - justificados a la izquierda, más grandes */}
+            <div className="space-y-1">
+              <p className="text-sm opacity-70 font-mono">
+                {pacienteMostrar.run}
+              </p>
+              <p className="text-sm font-medium">
+                {pacienteMostrar.edad} años
+              </p>
+            </div>
           </div>
         )}
 
@@ -638,9 +621,23 @@ export function CamaCard({ cama }: CamaCardProps) {
         {/* LÍNEA 8: Botones de Acción */}
         {/* ============================================ */}
         <div className="mt-auto flex-shrink-0 space-y-2">
-          {/* Botones principales */}
-          {botones.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+          {/* Botón de reevaluar en esquina inferior izquierda + Botones principales */}
+          {(mostrarBotonReevaluar || botones.length > 0) && (
+            <div className="flex flex-wrap gap-2 items-center">
+              {/* Botón de reevaluar a la izquierda */}
+              {mostrarBotonReevaluar && (
+                <button
+                  onClick={handleClickReevaluar}
+                  className="p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600
+                    transition-all duration-300 border border-blue-100 hover:border-blue-200
+                    hover:shadow-sm active:scale-95"
+                  title="Reevaluar paciente"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Botones principales */}
               {botones.map((config) => {
                 const Icon = config.icono;
                 const isLoading = config.accion === 'buscarCama' && verificandoDisponibilidad;
