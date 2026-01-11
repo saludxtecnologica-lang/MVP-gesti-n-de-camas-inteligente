@@ -49,7 +49,7 @@ function AppContent() {
       </div>
 
       {/* Contenido principal */}
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-[1920px] mx-auto px-2 py-6">
         {vistaActual === 'dashboard' && <Dashboard />}
         {vistaActual === 'listaEspera' && <ListaEspera />}
         {vistaActual === 'derivados' && <Derivados />}

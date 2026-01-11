@@ -266,7 +266,7 @@ export function Dashboard() {
   }
 
   return (
-    <div className="flex gap-4">
+    <div className="flex gap-3">
       {/* Columna Principal - Camas */}
       <div className="flex-grow space-y-4">
         {/* Stats y filtros */}
@@ -435,10 +435,10 @@ export function Dashboard() {
             </div>
             
             <div className="divide-y divide-gray-100">
-              {/* Renderizar salas individuales en grupos horizontales de hasta 3 */}
+              {/* Renderizar salas individuales en grupos horizontales de hasta 4 */}
               {individualesAgrupadas.map((grupoSalas, grupoIndex) => (
                 <div key={`grupo-individual-${grupoIndex}-${dataVersion}`} className="p-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4">
                     {grupoSalas.map(([sala, camasSala]) => {
                       const sexoSala = camasSala[0]?.sala_sexo_asignado;
 
@@ -518,7 +518,7 @@ export function Dashboard() {
                     </div>
                     
                     {/* Grid de camas de la sala */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4">
                       {camasSala.map(cama => (
                         <CamaCard key={`${cama.id}-${dataVersion}`} cama={cama} />
                       ))}
@@ -539,7 +539,7 @@ export function Dashboard() {
       </div>
 
       {/* Columna Lateral - Resumen de Traslados */}
-      <div className="w-96 flex-shrink-0 sticky top-28 self-start max-h-[calc(100vh-8rem)]">
+      <div className="w-80 flex-shrink-0 sticky top-28 self-start max-h-[calc(100vh-8rem)]">
         <ResumenTraslados filtroServicio={filtroServicio} />
       </div>
     </div>
