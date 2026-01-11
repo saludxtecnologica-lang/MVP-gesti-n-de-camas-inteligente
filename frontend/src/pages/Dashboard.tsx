@@ -540,7 +540,7 @@ export function Dashboard() {
 
       {/* Columna Lateral - Resumen de Traslados */}
       <div className="w-96 flex-shrink-0 sticky top-28 self-start max-h-[calc(100vh-8rem)]">
-        <ResumenTraslados />
+        <ResumenTraslados filtroServicio={filtroServicio} />
       </div>
     </div>
   );

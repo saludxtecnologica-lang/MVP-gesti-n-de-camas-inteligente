@@ -20,7 +20,11 @@ interface PacienteTraslado extends Paciente {
   tipo_traslado: 'entrante' | 'saliente';
 }
 
-export function ResumenTraslados() {
+interface ResumenTrasladosProps {
+  filtroServicio: string;
+}
+
+export function ResumenTraslados({ filtroServicio }: ResumenTrasladosProps) {
   const { camas, listaEspera, dataVersion } = useApp();
   const { user } = useAuth();
   const { openModal } = useModal();
@@ -36,8 +40,8 @@ export function ResumenTraslados() {
     const salientes: PacienteTraslado[] = [];
     const entrantesMap = new Map<string, PacienteTraslado>(); // Map solo para entrantes
 
-    // Estados de traslado entrante
-    const estadosEntrantes = ['traslado_entrante', 'cama_en_espera'];
+    // Estados de traslado entrante (SIN cama_en_espera)
+    const estadosEntrantes = ['traslado_entrante'];
 
     // Estados de traslado saliente (incluye fallecidos)
     const estadosSalientes = [
@@ -51,8 +55,8 @@ export function ResumenTraslados() {
     // PASO 1: Agregar pacientes SALIENTES (sin eliminar duplicados)
     // Un paciente puede estar saliendo de un servicio simultáneamente
     camas.forEach(cama => {
-      // Verificar permisos
-      if (!esRolGlobal && servicioUsuario && servicioUsuario !== cama.servicio_nombre) {
+      // Aplicar filtro de servicio del Dashboard
+      if (filtroServicio !== 'todos' && cama.servicio_nombre !== filtroServicio) {
         return;
       }
 
@@ -71,8 +75,8 @@ export function ResumenTraslados() {
 
     // PASO 2: Agregar pacientes ENTRANTES de camas (usar Map para evitar duplicados DENTRO de entrantes)
     camas.forEach(cama => {
-      // Verificar permisos
-      if (!esRolGlobal && servicioUsuario && servicioUsuario !== cama.servicio_nombre) {
+      // Aplicar filtro de servicio del Dashboard
+      if (filtroServicio !== 'todos' && cama.servicio_nombre !== filtroServicio) {
         return;
       }
 
@@ -90,10 +94,13 @@ export function ResumenTraslados() {
     });
 
     // PASO 3: Agregar pacientes de lista de espera SOLO si no están ya en entrantes
+    // También aplicar filtro de servicio si no es "todos"
     listaEspera.forEach(paciente => {
-      // Verificar permisos
-      if (esRolGlobal || !servicioUsuario) {
-        if (paciente.id && !entrantesMap.has(paciente.id)) {
+      if (paciente.id && !entrantesMap.has(paciente.id)) {
+        // Si hay filtro de servicio, solo agregar si NO aplicamos filtro
+        // (la lista de espera no tiene servicio_nombre directamente)
+        // Por ahora solo agregamos si el filtro es "todos"
+        if (filtroServicio === 'todos') {
           entrantesMap.set(paciente.id, {
             ...paciente,
             tipo_traslado: 'entrante'
@@ -112,7 +119,7 @@ export function ResumenTraslados() {
       const prioridadB = b.prioridad_calculada || 0;
       return prioridadB - prioridadA;
     });
-  }, [camas, listaEspera, esRolGlobal, servicioUsuario, dataVersion]);
+  }, [camas, listaEspera, filtroServicio, dataVersion]);
 
   // Separar por tipo de traslado
   const pacientesEntrantes = pacientesEnTraslado.filter(p => p.tipo_traslado === 'entrante');
@@ -206,7 +213,7 @@ export function ResumenTraslados() {
           Resumen de Traslados
         </h3>
         <p className="text-xs text-gray-500 mt-1">
-          {esRolGlobal ? 'Todos los servicios' : `Servicio: ${servicioUsuario || 'N/A'}`}
+          {filtroServicio === 'todos' ? 'Todos los servicios' : `Servicio: ${filtroServicio}`}
         </p>
       </div>
 
