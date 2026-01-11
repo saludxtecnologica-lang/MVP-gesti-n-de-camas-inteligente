@@ -482,7 +482,21 @@ export function Dashboard() {
               {/* Renderizar salas compartidas normalmente */}
               {compartidas.map(([sala, camasSala]) => {
                 const sexoSala = camasSala[0]?.sala_sexo_asignado;
-                
+
+                // Determinar número de columnas basado en cantidad de camas
+                const numCamas = camasSala.length;
+                let gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3';
+
+                if (numCamas === 4) {
+                  gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4';
+                } else if (numCamas === 3) {
+                  gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3';
+                } else if (numCamas === 2) {
+                  gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2';
+                } else {
+                  gridCols = 'grid-cols-1';
+                }
+
                 return (
                   <div key={`sala-${sala}-${dataVersion}`} className="p-4">
                     {/* Header de la Sala */}
@@ -518,7 +532,7 @@ export function Dashboard() {
                     </div>
                     
                     {/* Grid de camas de la sala */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4">
+                    <div className={`grid ${gridCols} gap-4`}>
                       {camasSala.map(cama => (
                         <CamaCard key={`${cama.id}-${dataVersion}`} cama={cama} />
                       ))}
