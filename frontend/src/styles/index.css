@@ -3555,3 +3555,31 @@ input[type="number"]::placeholder {
 .animate-scaleEntrance {
   animation: scaleEntrance 0.3s ease-out;
 }
+
+/* Animación de fade-in suave para secciones del dashboard */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeInUp {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.animate-fadeInUp-delay-1 {
+  animation: fadeInUp 0.6s ease-out 0.1s both;
+}
+
+.animate-fadeInUp-delay-2 {
+  animation: fadeInUp 0.6s ease-out 0.2s both;
+}
+
+.animate-fadeInUp-delay-3 {
+  animation: fadeInUp 0.6s ease-out 0.3s both;
+}

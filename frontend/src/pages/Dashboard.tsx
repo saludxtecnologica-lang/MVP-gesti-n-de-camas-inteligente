@@ -270,7 +270,7 @@ export function Dashboard() {
       {/* Columna Principal - Camas */}
       <div className="flex-grow space-y-4">
         {/* Stats y filtros */}
-        <div className="bg-white rounded-lg shadow p-3">
+        <div className="bg-white rounded-lg shadow p-3 animate-fadeInUp-delay-1">
         <div className="flex items-center justify-between gap-3">
           {/* Estadísticas - Compactas */}
           <div className="flex gap-4">
@@ -384,29 +384,29 @@ export function Dashboard() {
           </div>
 
           {/* Indicadores y controles - Compactos */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-3 flex-shrink-0">
             {/* Indicador TTS */}
             <TTSIndicator />
 
             {/* Indicador de WebSocket */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <div
                 className={`w-2 h-2 rounded-full ${
                   wsConnected ? 'bg-green-500' : 'bg-red-500'
                 }`}
               />
-              <span className="text-xs text-gray-500">
+              <span className="text-sm text-gray-600 font-medium">
                 {wsConnected ? 'OK' : 'OFF'}
               </span>
             </div>
 
             {/* Filtro de servicio */}
-            <div className="flex items-center gap-1">
-              <label className="text-xs text-gray-600">Servicio:</label>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-700 font-medium">Servicio:</label>
               <select
                 value={filtroServicio}
                 onChange={(e) => setFiltroServicio(e.target.value)}
-                className="border rounded-lg px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
+                className="border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 font-medium"
               >
                 <option value="todos">Todos</option>
                 {servicios.map(servicio => (
@@ -423,7 +423,7 @@ export function Dashboard() {
         const { individualesAgrupadas, compartidas } = agruparSalasIndividuales(salasCamas, servicio);
         
         return (
-          <div key={`servicio-${servicio}-${dataVersion}`} className="bg-white rounded-lg shadow">
+          <div key={`servicio-${servicio}-${dataVersion}`} className="bg-white rounded-lg shadow animate-fadeInUp-delay-2">
             {/* Header del Servicio */}
             <div className="px-4 py-3 border-b bg-gray-100 rounded-t-lg">
               <h2 className="font-bold text-gray-800 text-lg">
@@ -569,7 +569,7 @@ export function Dashboard() {
       </div>
 
       {/* Columna Lateral - Resumen de Traslados */}
-      <div className="w-80 flex-shrink-0 sticky top-28 self-start max-h-[calc(100vh-8rem)]">
+      <div className="w-80 flex-shrink-0 sticky top-28 self-start max-h-[calc(100vh-8rem)] animate-fadeInUp-delay-3">
         <ResumenTraslados filtroServicio={filtroServicio} />
       </div>
     </div>

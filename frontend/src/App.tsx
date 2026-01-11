@@ -41,7 +41,7 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header con UserBadge - Fijo en la parte superior */}
-      <div className="sticky top-0 z-50 shadow-md">
+      <div className="sticky top-0 z-50 shadow-md animate-fadeInUp">
         <Header vistaActual={vistaActual} onCambiarVista={setVistaActual}>
           {/* UserBadge se pasa como children al Header */}
           <UserBadge />
