@@ -47,14 +47,14 @@ export function Header({ vistaActual, onCambiarVista }: HeaderProps) {
 
   return (
     <header className="bg-white shadow-sm border-b">
-      <div className="max-w-7xl mx-auto px-4 py-3">
-        <div className="flex items-center justify-between">
+      <div className="max-w-[1920px] mx-auto px-4 py-3">
+        <div className="flex items-center justify-between gap-6">
           {/* Logo y título */}
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-gray-800">
-              Gestión de Camas
+          <div className="flex items-center gap-4 flex-shrink-0">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              Overmaind-Flow
             </h1>
-            
+
             {/* Selector de hospital */}
             <select
               value={hospitalSeleccionado?.id || ''}
@@ -62,7 +62,7 @@ export function Header({ vistaActual, onCambiarVista }: HeaderProps) {
                 const hospital = hospitales.find(h => h.id === e.target.value);
                 setHospitalSeleccionado(hospital || null);
               }}
-              className="border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500"
+              className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 font-medium min-w-[200px]"
             >
               {hospitales.map(hospital => (
                 <option key={hospital.id} value={hospital.id}>
@@ -73,14 +73,14 @@ export function Header({ vistaActual, onCambiarVista }: HeaderProps) {
 
             {/* Indicador modo */}
             {configuracion?.modo_manual && (
-              <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-medium">
+              <span className="bg-yellow-100 text-yellow-800 px-3 py-1.5 rounded-lg text-sm font-semibold">
                 Modo Manual
               </span>
             )}
           </div>
 
           {/* Navegación */}
-          <nav className="flex items-center gap-1">
+          <nav className="flex items-center gap-3 flex-grow justify-center">
             {navItems.map(item => {
               const Icon = item.icon;
               const isActive = vistaActual === item.key;
@@ -89,17 +89,17 @@ export function Header({ vistaActual, onCambiarVista }: HeaderProps) {
                   key={item.key}
                   onClick={() => onCambiarVista(item.key)}
                   className={`
-                    flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors
-                    ${isActive 
-                      ? 'bg-blue-100 text-blue-700' 
+                    flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors
+                    ${isActive
+                      ? 'bg-blue-100 text-blue-700'
                       : 'text-gray-600 hover:bg-gray-100'
                     }
                   `}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="w-5 h-5" />
                   {item.label}
                   {item.badge !== undefined && item.badge > 0 && (
-                    <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                    <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">
                       {item.badge}
                     </span>
                   )}
