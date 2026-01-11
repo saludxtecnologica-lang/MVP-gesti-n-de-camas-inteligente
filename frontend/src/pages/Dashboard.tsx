@@ -435,10 +435,25 @@ export function Dashboard() {
             </div>
             
             <div className="divide-y divide-gray-100">
-              {/* Renderizar salas individuales en grupos horizontales de hasta 4 */}
-              {individualesAgrupadas.map((grupoSalas, grupoIndex) => (
-                <div key={`grupo-individual-${grupoIndex}-${dataVersion}`} className="p-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4">
+              {/* Renderizar salas individuales en grupos horizontales */}
+              {individualesAgrupadas.map((grupoSalas, grupoIndex) => {
+                // Determinar número de columnas basado en cantidad de salas en el grupo
+                const numSalas = grupoSalas.length;
+                let gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3';
+
+                if (numSalas === 4) {
+                  gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4';
+                } else if (numSalas === 3) {
+                  gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3';
+                } else if (numSalas === 2) {
+                  gridCols = 'grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2';
+                } else {
+                  gridCols = 'grid-cols-1';
+                }
+
+                return (
+                  <div key={`grupo-individual-${grupoIndex}-${dataVersion}`} className="p-4">
+                    <div className={`grid ${gridCols} gap-4`}>
                     {grupoSalas.map(([sala, camasSala]) => {
                       const sexoSala = camasSala[0]?.sala_sexo_asignado;
 
@@ -475,9 +490,10 @@ export function Dashboard() {
                         </div>
                       );
                     })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               
               {/* Renderizar salas compartidas normalmente */}
               {compartidas.map(([sala, camasSala]) => {
