@@ -573,7 +573,7 @@ export function CamaCard({ cama }: CamaCardProps) {
         {/* ============================================ */}
         {/* LÍNEA 7: Espacio para Mensajes (hasta 3) */}
         {/* ============================================ */}
-        <div className="mb-3 flex-shrink-0 space-y-1.5" style={{ minHeight: '60px' }}>
+        <div className="mb-3 flex-shrink-0 space-y-1.5">
           {/* Mensaje 1: Evaluación de oxígeno */}
           {esperandoOxigeno && !esFallecido && (
             <div className="text-xs p-2.5 bg-cyan-50 rounded-xl border border-cyan-200 text-cyan-800 shadow-sm">
@@ -597,7 +597,7 @@ export function CamaCard({ cama }: CamaCardProps) {
           {/* Mensaje 3: Causa de fallecimiento */}
           {esFallecido && pacienteMostrar?.causa_fallecimiento && (
             <div className="text-xs p-2.5 bg-gray-700 bg-opacity-50 rounded-xl border border-gray-600 text-gray-300 italic">
-              <span className="text-xs leading-tight">Causa: {pacienteMostrar.causa_fallecimiento}</span>
+              <span className="text-xs leading-tight">{pacienteMostrar.causa_fallecimiento}</span>
             </div>
           )}
 
@@ -619,7 +619,7 @@ export function CamaCard({ cama }: CamaCardProps) {
         {/* ============================================ */}
         {/* LÍNEA 8: Botones de Acción */}
         {/* ============================================ */}
-        <div className="mt-auto flex-shrink-0 space-y-2">
+        <div className="mt-auto flex-shrink-0 space-y-2 pt-2">
           {/* Botones de acción en una sola fila */}
           {(mostrarBotonReevaluar || botones.length > 0) && (
             <div className="flex flex-wrap gap-2 items-center">
@@ -629,7 +629,7 @@ export function CamaCard({ cama }: CamaCardProps) {
                   onClick={handleClickReevaluar}
                   className="flex items-center justify-center px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600
                     transition-all duration-300 border border-blue-100 hover:border-blue-200
-                    hover:shadow-sm active:scale-95"
+                    shadow-sm hover:shadow active:scale-95"
                   title="Reevaluar paciente"
                 >
                   <RefreshCw className="w-4 h-4" />
