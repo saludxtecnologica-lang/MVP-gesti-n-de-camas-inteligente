@@ -479,8 +479,8 @@ export function CamaCard({ cama }: CamaCardProps) {
         {/* ============================================ */}
         {pacienteMostrar && (
           <div className={`mb-3 flex-shrink-0 ${esFallecido ? 'text-gray-200' : ''}`}>
-            <div className="flex items-center gap-3 mb-2">
-              {/* Logo de persona - más grande */}
+            <div className="flex items-start gap-3">
+              {/* Logo de persona - más grande y a la izquierda */}
               <div className={`flex-shrink-0 rounded-full p-3 shadow-sm ${
                 pacienteMostrar.sexo === 'hombre'
                   ? 'bg-gradient-to-br from-blue-500 to-blue-600'
@@ -493,28 +493,27 @@ export function CamaCard({ cama }: CamaCardProps) {
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="w-12 h-12"
+                  className="w-14 h-14"
                 >
                   <circle cx="12" cy="8" r="4" />
                   <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
                 </svg>
               </div>
-              {/* Nombre - una sola línea con truncate */}
-              <div className="flex-grow min-w-0">
-                <p className="font-bold text-xl leading-tight truncate">
+              {/* Columna con Nombre, RUT y Edad alineados */}
+              <div className="flex-grow min-w-0 flex flex-col justify-center space-y-1">
+                {/* Nombre - máximo 2 líneas */}
+                <p className="font-bold text-xl leading-tight line-clamp-2">
                   {pacienteMostrar.nombre}
                 </p>
+                {/* RUT */}
+                <p className="text-sm opacity-70 font-mono">
+                  {pacienteMostrar.run}
+                </p>
+                {/* Edad */}
+                <p className="text-sm font-medium">
+                  {pacienteMostrar.edad} años
+                </p>
               </div>
-            </div>
-
-            {/* RUT y Edad - justificados a la izquierda, más grandes */}
-            <div className="space-y-1">
-              <p className="text-sm opacity-70 font-mono">
-                {pacienteMostrar.run}
-              </p>
-              <p className="text-sm font-medium">
-                {pacienteMostrar.edad} años
-              </p>
             </div>
           </div>
         )}
@@ -621,14 +620,14 @@ export function CamaCard({ cama }: CamaCardProps) {
         {/* LÍNEA 8: Botones de Acción */}
         {/* ============================================ */}
         <div className="mt-auto flex-shrink-0 space-y-2">
-          {/* Botón de reevaluar en esquina inferior izquierda + Botones principales */}
+          {/* Botones de acción en una sola fila */}
           {(mostrarBotonReevaluar || botones.length > 0) && (
             <div className="flex flex-wrap gap-2 items-center">
-              {/* Botón de reevaluar a la izquierda */}
+              {/* Botón de reevaluar - mismo tamaño que otros botones */}
               {mostrarBotonReevaluar && (
                 <button
                   onClick={handleClickReevaluar}
-                  className="p-2 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600
+                  className="flex items-center justify-center px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600
                     transition-all duration-300 border border-blue-100 hover:border-blue-200
                     hover:shadow-sm active:scale-95"
                   title="Reevaluar paciente"
