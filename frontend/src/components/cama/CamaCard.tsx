@@ -612,9 +612,9 @@ export function CamaCard({ cama }: CamaCardProps) {
         {/* ============================================ */}
         {/* LÍNEA 8: Botones de Acción */}
         {/* ============================================ */}
-        <div className="mt-auto flex-shrink-0 space-y-2 pt-2">
-          {/* Botones de acción en una sola fila */}
-          {(mostrarBotonReevaluar || botones.length > 0) && (
+        <div className="mt-auto flex-shrink-0 pt-2">
+          {/* Todos los botones en una sola fila */}
+          {(mostrarBotonReevaluar || botones.length > 0 || (esperandoOxigeno && paciente && !esFallecido)) && (
             <div className="flex flex-wrap gap-2 items-center">
               {/* Botón de reevaluar - mismo tamaño que otros botones */}
               {mostrarBotonReevaluar && (
@@ -656,23 +656,23 @@ export function CamaCard({ cama }: CamaCardProps) {
                   </button>
                 );
               })}
-            </div>
-          )}
 
-          {/* Botón omitir pausa de oxígeno */}
-          {esperandoOxigeno && paciente && !esFallecido && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                actions.handleOmitirPausaOxigeno(paciente.id);
-              }}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium
-                rounded-xl bg-teal-600 hover:bg-teal-700 text-white
-                transition-all duration-300 shadow-sm hover:shadow-md active:scale-95"
-            >
-              <Clock className="w-4 h-4" />
-              Omitir espera O₂ y buscar cama
-            </button>
+              {/* Botón omitir pausa de oxígeno - integrado en la misma fila */}
+              {esperandoOxigeno && paciente && !esFallecido && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    actions.handleOmitirPausaOxigeno(paciente.id);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl
+                    bg-teal-600 hover:bg-teal-700 text-white
+                    transition-all duration-300 shadow-sm hover:shadow-md active:scale-95"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  Omitir pausa O₂
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
