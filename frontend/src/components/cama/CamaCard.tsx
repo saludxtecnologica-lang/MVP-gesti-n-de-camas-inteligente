@@ -594,13 +594,6 @@ export function CamaCard({ cama }: CamaCardProps) {
             </div>
           )}
 
-          {/* Mensaje 3: Causa de fallecimiento */}
-          {esFallecido && pacienteMostrar?.causa_fallecimiento && (
-            <div className="text-xs p-2.5 bg-gray-700 bg-opacity-50 rounded-xl border border-gray-600 text-gray-300 italic">
-              <span className="text-xs leading-tight">{pacienteMostrar.causa_fallecimiento}</span>
-            </div>
-          )}
-
           {/* Mensaje alternativo: Estado de la cama */}
           {!esperandoOxigeno && !esFallecido && cama.mensaje_estado && (
             <div className="text-xs p-2.5 bg-white bg-opacity-10 rounded-xl italic opacity-75">
