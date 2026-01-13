@@ -54,30 +54,49 @@ export function ModalDerivacionDirecta({
   paciente,
   onDerivacionCompletada
 }: ModalDerivacionDirectaProps) {
-  const { hospitales, hospitalSeleccionado, showAlert, recargarTodo } = useApp();
-  
+  const { showAlert, recargarTodo } = useApp();
+
   // Estados del formulario
   const [hospitalDestinoId, setHospitalDestinoId] = useState('');
   const [motivoDerivacion, setMotivoDerivacion] = useState('');
   const [documento, setDocumento] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // Estado de viabilidad
   const [viabilidad, setViabilidad] = useState<EstadoViabilidad>(estadoViabilidadInicial);
+
+  // Hospitales disponibles para derivación (cargados desde el endpoint específico)
+  const [hospitalesDerivacion, setHospitalesDerivacion] = useState<any[]>([]);
+  const [cargandoHospitales, setCargandoHospitales] = useState(false);
   
-  // Hospitales disponibles para derivación (excluyendo el actual)
-  const hospitalesDerivacion = hospitales.filter(h => h.id !== hospitalSeleccionado?.id);
-  
-  // Reset al abrir
+  // Cargar hospitales disponibles para derivación al abrir el modal
   useEffect(() => {
-    if (isOpen) {
-      setHospitalDestinoId('');
-      setMotivoDerivacion('');
-      setDocumento(null);
-      setViabilidad(estadoViabilidadInicial);
-    }
-  }, [isOpen]);
+    const cargarHospitales = async () => {
+      if (isOpen) {
+        // Reset del formulario
+        setHospitalDestinoId('');
+        setMotivoDerivacion('');
+        setDocumento(null);
+        setViabilidad(estadoViabilidadInicial);
+
+        // Cargar hospitales de derivación
+        try {
+          setCargandoHospitales(true);
+          const hospitales = await api.getHospitalesDisponiblesParaDerivacion();
+          setHospitalesDerivacion(hospitales);
+        } catch (error) {
+          console.error('Error cargando hospitales de derivación:', error);
+          showAlert('error', 'Error al cargar hospitales disponibles');
+          setHospitalesDerivacion([]);
+        } finally {
+          setCargandoHospitales(false);
+        }
+      }
+    };
+
+    cargarHospitales();
+  }, [isOpen, showAlert]);
   
   // Verificar viabilidad cuando cambia el hospital destino
   useEffect(() => {
@@ -259,12 +278,21 @@ export function ModalDerivacionDirecta({
           <select
             value={hospitalDestinoId}
             onChange={(e) => setHospitalDestinoId(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+            disabled={cargandoHospitales}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
           >
-            <option value="">Seleccionar hospital...</option>
-            {hospitalesDerivacion.map(h => (
-              <option key={h.id} value={h.id}>{h.nombre}</option>
-            ))}
+            {cargandoHospitales ? (
+              <option value="">Cargando hospitales...</option>
+            ) : hospitalesDerivacion.length === 0 ? (
+              <option value="">No hay hospitales disponibles</option>
+            ) : (
+              <>
+                <option value="">Seleccionar hospital...</option>
+                {hospitalesDerivacion.map(h => (
+                  <option key={h.id} value={h.id}>{h.nombre}</option>
+                ))}
+              </>
+            )}
           </select>
         </div>
         

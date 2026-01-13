@@ -141,6 +141,99 @@ def obtener_hospitales(
     return resultado
 
 
+@router.get("/disponibles-para-derivacion", response_model=List[HospitalResponse])
+def obtener_hospitales_disponibles_para_derivacion(
+    current_user: Usuario = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    Obtiene todos los hospitales disponibles para derivación (excepto el del usuario).
+    Disponible para MEDICO, GESTOR_CAMAS, PROGRAMADOR y roles con capacidad de derivar.
+
+    Este endpoint permite a médicos y gestores de camas ver todos los hospitales
+    de la red para poder derivar pacientes, sin las restricciones del endpoint principal.
+    """
+    # Verificar que el usuario tiene permiso para derivar
+    roles_permitidos = {
+        RolEnum.PROGRAMADOR,
+        RolEnum.MEDICO,
+        RolEnum.GESTOR_CAMAS,
+        RolEnum.DIRECTIVO_RED,
+        RolEnum.DIRECTIVO_HOSPITAL
+    }
+
+    if current_user.rol not in roles_permitidos:
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permisos para solicitar derivaciones"
+        )
+
+    repo = HospitalRepository(session)
+    hospitales_todos = repo.obtener_todos()
+
+    # Filtrar hospitales: mostrar todos EXCEPTO el hospital del usuario actual
+    hospitales = []
+
+    for hospital in hospitales_todos:
+        # Excluir el hospital actual del usuario
+        if current_user.hospital_id:
+            # Normalizar código del usuario
+            user_hospital_codigo = CODIGO_HOSPITAL_MAP.get(
+                current_user.hospital_id,
+                current_user.hospital_id
+            )
+
+            # Comparar por UUID o código
+            es_hospital_actual = (
+                current_user.hospital_id == hospital.id or
+                user_hospital_codigo == hospital.codigo or
+                current_user.hospital_id == hospital.codigo
+            )
+
+            if es_hospital_actual:
+                continue  # Saltar el hospital actual
+
+        # Agregar hospital con sus estadísticas
+        camas = repo.obtener_camas_hospital(hospital.id)
+        stats = calcular_estadisticas_camas(camas)
+
+        # Contar pacientes en espera
+        cola = gestor_colas_global.obtener_cola(hospital.id)
+        pacientes_en_cola = cola.tamano()
+
+        # Contar pacientes con cama_destino_id
+        query_pendientes_traslado = select(Paciente).where(
+            Paciente.hospital_id == hospital.id,
+            Paciente.en_lista_espera == True,
+            Paciente.cama_destino_id != None
+        )
+        pendientes_traslado = len(session.exec(query_pendientes_traslado).all())
+        pacientes_espera = max(pacientes_en_cola, pendientes_traslado) if pendientes_traslado > 0 else pacientes_en_cola
+
+        # Contar derivados pendientes
+        query_derivados = select(Paciente).where(
+            Paciente.derivacion_hospital_destino_id == hospital.id,
+            Paciente.derivacion_estado == "pendiente"
+        )
+        derivados = len(session.exec(query_derivados).all())
+
+        hospitales.append(HospitalResponse(
+            id=hospital.id,
+            nombre=hospital.nombre,
+            codigo=hospital.codigo,
+            es_central=hospital.es_central,
+            total_camas=stats["total"],
+            camas_libres=stats["libres"],
+            camas_ocupadas=stats["ocupadas"],
+            pacientes_en_espera=pacientes_espera,
+            pacientes_derivados=derivados,
+            telefono_urgencias=hospital.telefono_urgencias,
+            telefono_ambulatorio=hospital.telefono_ambulatorio
+        ))
+
+    return hospitales
+
+
 @router.get("/{hospital_id}", response_model=HospitalResponse)
 def obtener_hospital(
     hospital_id: str,

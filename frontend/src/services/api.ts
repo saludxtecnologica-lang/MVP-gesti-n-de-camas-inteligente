@@ -278,6 +278,10 @@ export async function getHospitales(): Promise<Hospital[]> {
   return fetchApi<Hospital[]>('/hospitales');
 }
 
+export async function getHospitalesDisponiblesParaDerivacion(): Promise<Hospital[]> {
+  return fetchApi<Hospital[]>('/hospitales/disponibles-para-derivacion');
+}
+
 export async function getHospital(id: string): Promise<Hospital> {
   return fetchApi<Hospital>(`/hospitales/${id}`);
 }
