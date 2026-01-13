@@ -150,12 +150,12 @@ async def solicitar_derivacion(
     current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Solicita una derivación para un paciente. Solo MEDICO puede solicitar derivaciones."""
-    # Verificar que solo MEDICO puede solicitar derivaciones
-    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+    """Solicita una derivación para un paciente. MEDICO, GESTOR_CAMAS y PROGRAMADOR pueden solicitar."""
+    # Verificar roles autorizados para solicitar derivaciones
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.GESTOR_CAMAS, RolEnum.PROGRAMADOR]:
         raise HTTPException(
             status_code=403,
-            detail="Solo los médicos pueden solicitar derivaciones"
+            detail="Solo médicos y gestores de camas pueden solicitar derivaciones"
         )
 
     # Verificar permiso
@@ -199,12 +199,12 @@ async def accion_derivacion(
     current_user: Usuario = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """Acepta o rechaza una derivación. Solo MEDICO puede aceptar/rechazar."""
-    # Verificar que solo MEDICO puede aceptar/rechazar derivaciones
-    if current_user.rol not in [RolEnum.MEDICO, RolEnum.PROGRAMADOR]:
+    """Acepta o rechaza una derivación. MEDICO, GESTOR_CAMAS y PROGRAMADOR pueden aceptar/rechazar."""
+    # Verificar roles autorizados para aceptar/rechazar derivaciones
+    if current_user.rol not in [RolEnum.MEDICO, RolEnum.GESTOR_CAMAS, RolEnum.PROGRAMADOR]:
         raise HTTPException(
             status_code=403,
-            detail="Solo los médicos pueden aceptar o rechazar derivaciones"
+            detail="Solo médicos y gestores de camas pueden aceptar o rechazar derivaciones"
         )
 
     # Verificar permisos según la acción
