@@ -18,6 +18,7 @@ interface PacienteTraslado extends Paciente {
   cama_identificador?: string;
   servicio_nombre?: string;
   tipo_traslado: 'entrante' | 'saliente';
+  estado_cama?: string;
 }
 
 interface ResumenTrasladosProps {
@@ -67,7 +68,8 @@ export function ResumenTraslados({ filtroServicio }: ResumenTrasladosProps) {
             ...paciente,
             cama_identificador: cama.identificador,
             servicio_nombre: cama.servicio_nombre,
-            tipo_traslado: 'saliente'
+            tipo_traslado: 'saliente',
+            estado_cama: cama.estado
           });
         }
       }
@@ -140,8 +142,13 @@ export function ResumenTraslados({ filtroServicio }: ResumenTrasladosProps) {
     const colorSexo = sexo === 'hombre' ? 'bg-blue-500' : 'bg-pink-500';
     const colorSexoLight = sexo === 'hombre' ? 'bg-blue-50 border-blue-200' : 'bg-pink-50 border-pink-200';
 
-    // Determinar estado del paciente basado en si tiene cama asignada
-    const estadoTexto = paciente.cama_identificador ? 'Cama asignada' : 'En espera de cama';
+    // Determinar estado del paciente basado en si tiene cama asignada o está fallecido
+    let estadoTexto = 'En espera de cama';
+    if (paciente.estado_cama === 'fallecido') {
+      estadoTexto = 'Fallecido';
+    } else if (paciente.cama_identificador) {
+      estadoTexto = 'Cama asignada';
+    }
 
     return (
       <button
