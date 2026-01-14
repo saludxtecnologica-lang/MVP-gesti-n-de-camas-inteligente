@@ -1,5 +1,5 @@
 // Barrel export file for types
-// Re-exports all types, interfaces, and enums from Index.ts and auth.ts
+// Re-exports all types, interfaces, and enums
 
-export * from './Index';
+export * from './types';
 export * from './auth';
