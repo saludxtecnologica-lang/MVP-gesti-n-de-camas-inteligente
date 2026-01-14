@@ -17,12 +17,11 @@ import { Modal, Badge, Button, Spinner } from '../common';
 import { useModal } from '../../context/ModalContext';
 import { useApp } from '../../context/AppContext';
 import type { Paciente } from '../../types';
-import { 
-  formatComplejidad, 
-  formatTipoAislamiento, 
+import {
+  formatTipoAislamiento,
   formatTipoEnfermedad,
   formatSexo,
-  safeJsonParse 
+  safeJsonParse
 } from '../../utils';
 import { getDocumentoUrl, getInfoTrasladoPaciente } from '../../services/api';
 import { ModalDerivacionDirecta } from './ModalDerivacionDirecta';
@@ -270,30 +269,19 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
           {/* SECCIÓN: INFORMACIÓN BÁSICA */}
           {/* ============================================ */}
           <section className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-              <User className="w-6 h-6 text-blue-600" />
+            <div className={`w-12 h-12 rounded-full ${paciente.sexo === 'hombre' ? 'bg-blue-100' : 'bg-pink-100'} flex items-center justify-center`}>
+              <User className={`w-6 h-6 ${paciente.sexo === 'hombre' ? 'text-blue-600' : 'text-pink-600'}`} />
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-gray-800">{paciente.nombre}</h3>
               <div className="mt-1 text-sm text-gray-600 space-y-1">
-                <p><span className="font-medium">RUT:</span> {paciente.rut || 'No registrado'}</p>
+                <p><span className="font-medium">RUT:</span> {paciente.rut || paciente.run || 'No registrado'}</p>
                 <p><span className="font-medium">Edad:</span> {paciente.edad} años</p>
                 <p><span className="font-medium">Sexo:</span> {formatSexo(paciente.sexo)}</p>
                 {paciente.prevision && (
                   <p><span className="font-medium">Previsión:</span> {paciente.prevision}</p>
                 )}
               </div>
-            </div>
-            <div className="text-right">
-              <Badge variant={paciente.complejidad === 'alta_uci' || paciente.complejidad === 'alta_uti' ? 'danger' : 
-                            paciente.complejidad === 'media' ? 'warning' : 'success'}>
-                {formatComplejidad(paciente.complejidad)}
-              </Badge>
-              {paciente.tipo_paciente && (
-                <p className="mt-2 text-xs text-gray-500 capitalize">
-                  {paciente.tipo_paciente}
-                </p>
-              )}
             </div>
           </section>
 
@@ -385,11 +373,11 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
                   <span className="font-medium text-gray-600 text-sm">Requerimientos Clínicos:</span>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {todosRequerimientos.map(({ req, nivel, color }, idx) => (
-                      <Badge 
-                        key={idx} 
-                        variant={color === 'red' ? 'danger' : 
-                                color === 'orange' ? 'warning' : 
-                                color === 'yellow' ? 'warning' : 'secondary'}
+                      <Badge
+                        key={idx}
+                        variant={color === 'red' ? 'danger' :
+                                color === 'orange' ? 'warning' :
+                                color === 'yellow' ? 'warning' : 'default'}
                         className="text-xs"
                       >
                         {req} ({nivel})
@@ -400,14 +388,20 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
               )}
 
               {/* Aislamiento */}
-              {paciente.requiere_aislamiento && (
-                <div className="flex items-center gap-2 mt-2">
-                  <Badge variant="danger">Requiere Aislamiento</Badge>
+              <div className="flex items-center gap-2 mt-2">
+                {paciente.requiere_aislamiento ? (
+                  <>
+                    <Badge variant="danger">Requiere Aislamiento</Badge>
+                    <span className="text-sm text-gray-600">
+                      {formatTipoAislamiento(paciente.tipo_aislamiento)}
+                    </span>
+                  </>
+                ) : (
                   <span className="text-sm text-gray-600">
-                    {formatTipoAislamiento(paciente.tipo_aislamiento)}
+                    <span className="font-medium">Aislamiento:</span> No requiere
                   </span>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Oxígeno */}
               {paciente.requiere_oxigeno && (
@@ -594,26 +588,28 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
           {/* ============================================ */}
           {/* BOTONES DE ACCIÓN */}
           {/* ============================================ */}
-          <div className="flex justify-end gap-3 pt-4 border-t">
+          <div className="flex justify-between gap-3 pt-4 border-t">
             <Button variant="secondary" onClick={onClose}>
               Cerrar
             </Button>
-            <Button 
-              variant="primary" 
-              onClick={handleReevaluar}
-              icon={<RefreshCw className="w-4 h-4" />}
-            >
-              Reevaluar
-            </Button>
-            <Button 
-              variant="warning" 
-              onClick={handleAbrirDerivacion}
-              icon={<Send className="w-4 h-4" />}
-              disabled={tieneDerivacionActiva}
-              title={tieneDerivacionActiva ? 'Ya existe una derivación en proceso' : 'Solicitar derivación'}
-            >
-              Derivar
-            </Button>
+            <div className="flex gap-3">
+              <Button
+                variant="primary"
+                onClick={handleAbrirDerivacion}
+                icon={<Send className="w-4 h-4" />}
+                disabled={tieneDerivacionActiva}
+                title={tieneDerivacionActiva ? 'Ya existe una derivación en proceso' : 'Solicitar derivación'}
+              >
+                Derivar
+              </Button>
+              <Button
+                variant="warning"
+                onClick={handleReevaluar}
+                icon={<RefreshCw className="w-4 h-4" />}
+              >
+                Reevaluar
+              </Button>
+            </div>
           </div>
         </div>
       </Modal>
