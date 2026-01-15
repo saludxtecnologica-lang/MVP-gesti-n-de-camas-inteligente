@@ -1,5 +1,63 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+
+# Base de datos
 backend/gestion_camas.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Node
 node_modules/
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Variables de entorno
 .env
+.env.local
+.env.*.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Uploads
+uploads/
+backend/uploads/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Alembic
+alembic.ini.bak

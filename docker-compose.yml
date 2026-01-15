@@ -1,0 +1,224 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL - Base de Datos Principal
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: gestion_camas_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gestion_camas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_in_production}
+      POSTGRES_DB: ${POSTGRES_DB:-gestion_camas_db}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=es_CL.UTF-8"
+      # Configuración para replicación
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+      - ./backend/scripts/postgresql.conf:/etc/postgresql/postgresql.conf
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - gestion_camas_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gestion_camas}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+
+  # ============================================
+  # PostgreSQL Réplica (Read Replica)
+  # Para alta disponibilidad y distribución de lectura
+  # ============================================
+  postgres_replica:
+    image: postgres:15-alpine
+    container_name: gestion_camas_postgres_replica
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gestion_camas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_in_production}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      # Configuración de réplica
+      POSTGRES_PRIMARY_HOST: postgres
+      POSTGRES_PRIMARY_PORT: 5432
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./backend/scripts/setup-replica.sh:/docker-entrypoint-initdb.d/setup-replica.sh
+    ports:
+      - "${POSTGRES_REPLICA_PORT:-5433}:5432"
+    networks:
+      - gestion_camas_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gestion_camas}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Redis - Caché y Session Store
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: gestion_camas_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme_redis}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - gestion_camas_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # PgAdmin - Administración de PostgreSQL
+  # ============================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: gestion_camas_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@hospital.cl}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    networks:
+      - gestion_camas_network
+    depends_on:
+      - postgres
+    profiles:
+      - admin  # Solo se levanta con: docker-compose --profile admin up
+
+  # ============================================
+  # Backend - FastAPI Application
+  # ============================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gestion_camas_backend
+    restart: unless-stopped
+    environment:
+      # Base de datos
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gestion_camas}:${POSTGRES_PASSWORD:-changeme_in_production}@postgres:5432/${POSTGRES_DB:-gestion_camas_db}
+      DATABASE_READ_REPLICA_URL: postgresql://${POSTGRES_USER:-gestion_camas}:${POSTGRES_PASSWORD:-changeme_in_production}@postgres_replica:5432/${POSTGRES_DB:-gestion_camas_db}
+
+      # Redis
+      REDIS_URL: redis://:{REDIS_PASSWORD:-changeme_redis}@redis:6379/0
+
+      # Aplicación
+      DEBUG: ${DEBUG:-False}
+      APP_ENV: ${APP_ENV:-production}
+
+      # JWT
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+
+      # CORS
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+
+      # Pool de conexiones
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-3600}
+
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/app/uploads
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    networks:
+      - gestion_camas_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ============================================
+  # Frontend - React Application
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gestion_camas_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    networks:
+      - gestion_camas_network
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0
+
+  # ============================================
+  # Nginx - Reverse Proxy y Load Balancer
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: gestion_camas_nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - gestion_camas_network
+    depends_on:
+      - backend
+      - frontend
+    profiles:
+      - production  # Solo en producción
+
+# ============================================
+# Volúmenes Persistentes
+# ============================================
+volumes:
+  postgres_data:
+    driver: local
+  postgres_replica_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  nginx_logs:
+    driver: local
+
+# ============================================
+# Red
+# ============================================
+networks:
+  gestion_camas_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

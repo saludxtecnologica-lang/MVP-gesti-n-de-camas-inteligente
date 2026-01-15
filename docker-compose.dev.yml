@@ -1,0 +1,81 @@
+version: '3.8'
+
+# ============================================
+# Docker Compose para DESARROLLO LOCAL
+# Configuración simplificada sin réplicas ni nginx
+# ============================================
+
+services:
+  # ============================================
+  # PostgreSQL - Base de Datos
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: gestion_camas_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gestion_camas
+      POSTGRES_PASSWORD: dev_password_123
+      POSTGRES_DB: gestion_camas_db
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - dev_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestion_camas"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # ============================================
+  # Redis - Caché
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: gestion_camas_redis_dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - dev_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # ============================================
+  # PgAdmin - Administración (Opcional)
+  # ============================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: gestion_camas_pgadmin_dev
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@dev.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_dev_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    networks:
+      - dev_network
+    depends_on:
+      - postgres
+    profiles:
+      - admin
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
+  pgadmin_dev_data:
+
+networks:
+  dev_network:
+    driver: bridge

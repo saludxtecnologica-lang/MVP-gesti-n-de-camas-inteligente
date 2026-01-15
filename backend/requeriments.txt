@@ -1,25 +1,66 @@
+# ============================================
 # FastAPI y servidor
+# ============================================
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 
-# Base de datos
+# ============================================
+# Base de datos - PostgreSQL
+# ============================================
 sqlmodel==0.0.14
 sqlalchemy==2.0.25
+psycopg2-binary==2.9.9  # Driver PostgreSQL
+asyncpg==0.29.0  # Driver asíncrono PostgreSQL (mejor performance)
+alembic==1.13.1  # Migraciones de base de datos
+greenlet==3.0.3  # Requerido por SQLAlchemy async
 
+# ============================================
+# Caché - Redis
+# ============================================
+redis==5.0.1
+hiredis==2.3.2  # Parser C para mejor performance de Redis
+
+# ============================================
 # Validación
+# ============================================
 pydantic==2.5.3
 pydantic-settings==2.1.0
 
+# ============================================
 # Utilidades
+# ============================================
 python-multipart==0.0.6
 python-dateutil==2.8.2
 
+# ============================================
 # WebSocket
+# ============================================
 websockets==12.0
 
+# ============================================
 # CORS
+# ============================================
 starlette==0.35.1
 
+# ============================================
+# Seguridad y Autenticación
+# ============================================
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-pydantic-settings>=2.0.0
+
+# ============================================
+# Pool de conexiones mejorado
+# ============================================
+sqlalchemy-utils==0.41.1  # Utilidades adicionales para SQLAlchemy
+
+# ============================================
+# Logging y Monitoreo
+# ============================================
+python-json-logger==2.0.7  # Logs estructurados en JSON
+
+# ============================================
+# Testing
+# ============================================
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2  # Para testing de APIs
