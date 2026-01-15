@@ -8,6 +8,7 @@ from app.api.auth_router import router as auth_router
 
 import os
 
+from app.api import health
 from app.api import hospitales
 from app.api import camas
 from app.api import pacientes
@@ -69,6 +70,10 @@ async def obtener_documento(filename: str):
 # ============================================
 # INCLUIR TODOS LOS ROUTERS
 # ============================================
+
+# Health Check (sin autenticación para load balancers)
+api_router.include_router(health.router)
+
 api_router.include_router(
     hospitales.router,
     prefix="/hospitales",
