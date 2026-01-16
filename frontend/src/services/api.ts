@@ -19,6 +19,8 @@ import type {
   PacienteUpdate,
   ConfiguracionSistema,
   EstadisticasGlobales,
+  EstadisticasCompletas,
+  TrazabilidadServicio,
   ListaEsperaItem,
   DerivadoItem,
   DerivacionAccion,
@@ -793,6 +795,33 @@ export async function getEstadisticas(): Promise<EstadisticasGlobales> {
   return fetchApi<EstadisticasGlobales>('/estadisticas');
 }
 
+// ----- ESTADÍSTICAS AVANZADAS -----
+export async function getEstadisticasCompletas(dias: number = 7): Promise<EstadisticasCompletas> {
+  return fetchApi<EstadisticasCompletas>(`/estadisticas/avanzadas/completas?dias=${dias}`);
+}
+
+export async function getTrazabilidadPaciente(pacienteId: string): Promise<TrazabilidadServicio[]> {
+  return fetchApi<TrazabilidadServicio[]>(`/estadisticas/trazabilidad/paciente/${pacienteId}`);
+}
+
+export async function downloadEstadisticas(dias: number = 7, formato: 'json' | 'csv' = 'json'): Promise<Blob> {
+  const url = `${API_BASE}/api/estadisticas/avanzadas/descargar?dias=${dias}&formato=${formato}`;
+  const token = tokenStorage.getAccessToken();
+  const headers: HeadersInit = {};
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    throw new Error(`Error al descargar estadísticas: ${response.statusText}`);
+  }
+
+  return response.blob();
+}
+
 // ----- FALLECIMIENTO -----
 export async function completarEgresoFallecido(pacienteId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>(`/manual/fallecido/${pacienteId}/completar-egreso`, {
@@ -994,6 +1023,9 @@ export const configuracionApi = {
 export const estadisticasApi = {
   getGlobales: () => api.get<EstadisticasGlobales>('/api/estadisticas'),
   getHospital: (hospitalId: string) => api.get<EstadisticasGlobales>(`/api/estadisticas/hospital/${hospitalId}`),
+  getCompletas: (dias?: number) => getEstadisticasCompletas(dias),
+  getTrazabilidad: (pacienteId: string) => getTrazabilidadPaciente(pacienteId),
+  downloadData: (dias?: number, formato?: 'json' | 'csv') => downloadEstadisticas(dias, formato),
 };
 
 export const fallecimientoApi = {
