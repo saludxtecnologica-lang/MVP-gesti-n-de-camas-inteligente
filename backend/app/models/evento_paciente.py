@@ -57,7 +57,7 @@ class EventoPaciente(SQLModel, table=True):
     # ============================================
     # METADATA ADICIONAL
     # ============================================
-    metadata: Optional[str] = Field(default=None)  # JSON con información adicional
+    datos_adicionales: Optional[str] = Field(default=None)  # JSON con información adicional
 
     # ============================================
     # DATOS CALCULADOS (para optimización de consultas)
@@ -86,7 +86,7 @@ class EventoPaciente(SQLModel, table=True):
         Args:
             data: Diccionario con metadata
         """
-        self.metadata = json.dumps(data)
+        self.datos_adicionales = json.dumps(data)
 
     def get_metadata(self) -> dict:
         """
@@ -95,10 +95,10 @@ class EventoPaciente(SQLModel, table=True):
         Returns:
             Diccionario con metadata
         """
-        if not self.metadata:
+        if not self.datos_adicionales:
             return {}
         try:
-            return json.loads(self.metadata)
+            return json.loads(self.datos_adicionales)
         except json.JSONDecodeError:
             return {}
 

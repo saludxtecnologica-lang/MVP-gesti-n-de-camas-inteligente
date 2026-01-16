@@ -36,7 +36,7 @@ def upgrade() -> None:
         sa.Column('cama_origen_id', sa.String(), nullable=True),
         sa.Column('cama_destino_id', sa.String(), nullable=True),
         sa.Column('hospital_destino_id', sa.String(), nullable=True),
-        sa.Column('metadata', sa.String(), nullable=True),
+        sa.Column('datos_adicionales', sa.String(), nullable=True),
         sa.Column('dia_clinico', sa.DateTime(), nullable=True),
         sa.Column('duracion_segundos', sa.Integer(), nullable=True),
         sa.PrimaryKeyConstraint('id')
