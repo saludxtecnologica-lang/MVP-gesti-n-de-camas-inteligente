@@ -19,6 +19,7 @@ from app.models import (
     Sala,
     Cama,
     Paciente,
+    EventoPaciente,
     ConfiguracionSistema,
     LogActividad,
 )
