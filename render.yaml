@@ -1,0 +1,39 @@
+services:
+  # Backend FastAPI
+  - type: web
+    name: gestion-camas-backend
+    env: python
+    region: oregon  # Cambiar a la región más cercana
+    plan: free
+    buildCommand: |
+      cd backend
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: |
+      cd backend
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+    envVars:
+      - key: DATABASE_URL
+        sync: false  # Configurar manualmente en el dashboard
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: False
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DB_POOL_SIZE
+        value: 10
+      - key: DB_MAX_OVERFLOW
+        value: 5
+      - key: DB_POOL_RECYCLE
+        value: 300
+      - key: FORCE_HTTPS
+        value: True
+    healthCheckPath: /health
+    autoDeploy: true

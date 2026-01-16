@@ -33,6 +33,7 @@ pnpm-lock.yaml
 .env.local
 .env.*.local
 .env.production
+.env.supabase
 
 # IDE
 .vscode/
