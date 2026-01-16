@@ -99,6 +99,48 @@ class EstadoListaEsperaEnum(str, Enum):
     ASIGNADO = "asignado"
 
 
+class TipoEventoEnum(str, Enum):
+    """Tipo de evento del paciente en el sistema."""
+    # Ingresos
+    INGRESO_URGENCIA = "ingreso_urgencia"
+    INGRESO_AMBULATORIO = "ingreso_ambulatorio"
+
+    # Asignación de cama
+    CAMA_ASIGNADA = "cama_asignada"
+    BUSQUEDA_CAMA_INICIADA = "busqueda_cama_iniciada"
+
+    # Traslados internos
+    TRASLADO_INICIADO = "traslado_iniciado"
+    TRASLADO_CONFIRMADO = "traslado_confirmado"
+    TRASLADO_COMPLETADO = "traslado_completado"
+    TRASLADO_CANCELADO = "traslado_cancelado"
+    CAMA_EN_ESPERA_INICIO = "cama_en_espera_inicio"
+    CAMA_EN_ESPERA_FIN = "cama_en_espera_fin"
+
+    # Derivaciones
+    DERIVACION_SOLICITADA = "derivacion_solicitada"
+    DERIVACION_ACEPTADA = "derivacion_aceptada"
+    DERIVACION_RECHAZADA = "derivacion_rechazada"
+    DERIVACION_CAMA_ASIGNADA = "derivacion_cama_asignada"
+    DERIVACION_EGRESO_CONFIRMADO = "derivacion_egreso_confirmado"
+    DERIVACION_COMPLETADA = "derivacion_completada"
+
+    # Altas
+    ALTA_SUGERIDA = "alta_sugerida"
+    ALTA_INICIADA = "alta_iniciada"
+    ALTA_COMPLETADA = "alta_completada"
+    ALTA_CANCELADA = "alta_cancelada"
+
+    # Fallecimientos
+    FALLECIDO_MARCADO = "fallecido_marcado"
+    FALLECIDO_EGRESADO = "fallecido_egresado"
+
+    # Egresos
+    EGRESO_ALTA = "egreso_alta"
+    EGRESO_FALLECIDO = "egreso_fallecido"
+    EGRESO_DERIVACION = "egreso_derivacion"
+
+
 # ============================================
 # CONSTANTES RELACIONADAS CON ENUMS
 # ============================================

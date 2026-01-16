@@ -605,3 +605,108 @@ export interface HospitalConTelefonos {
   telefono_ambulatorio: string | null;
   servicios: ServicioConTelefono[];
 }
+
+// ============================================
+// ESTADÍSTICAS AVANZADAS
+// ============================================
+
+export interface TiempoEstadistica {
+  promedio: number;
+  maximo: number;
+  minimo: number;
+  cantidad: number;
+}
+
+export interface IngresosEgresos {
+  total: number;
+  desglose?: Record<string, any>;
+}
+
+export interface TasaOcupacion {
+  tasa_ocupacion: number;
+  camas_ocupadas: number;
+  camas_totales: number;
+}
+
+export interface Flujo {
+  flujo: string;
+  cantidad: number;
+}
+
+export interface ServicioDemanda {
+  servicio_id: string;
+  servicio_nombre: string;
+  hospital_id: string;
+  tasa_ocupacion: number;
+  pacientes_en_espera: number;
+  demanda_score: number;
+}
+
+export interface CasosEspeciales {
+  total: number;
+  cardiocirugia: number;
+  caso_social: number;
+  caso_socio_judicial: number;
+}
+
+export interface CamaSubutilizada {
+  cama_id: string;
+  identificador: string;
+  servicio_nombre: string;
+  tiempo_libre_horas: number;
+}
+
+export interface ServicioSubutilizado {
+  servicio_id: string;
+  servicio_nombre: string;
+  hospital_id: string;
+  tasa_libre: number;
+  camas_libres: number;
+  camas_totales: number;
+}
+
+export interface TrazabilidadServicio {
+  servicio_nombre: string;
+  entrada: string;
+  salida: string;
+  duracion_dias: number;
+  duracion_horas: number;
+  duracion_total_segundos: number;
+}
+
+export interface EstadisticasCompletas {
+  // Ingresos y Egresos
+  ingresos_red?: IngresosEgresos;
+  egresos_red?: IngresosEgresos;
+  ingresos_por_hospital?: any[];
+  egresos_por_hospital?: any[];
+
+  // Tiempos
+  tiempo_espera_cama?: TiempoEstadistica;
+  tiempo_derivacion_pendiente?: TiempoEstadistica;
+  tiempo_traslado_saliente?: TiempoEstadistica;
+  tiempo_confirmacion_traslado?: TiempoEstadistica;
+  tiempo_alta?: {
+    alta_sugerida: TiempoEstadistica;
+    alta_completada: TiempoEstadistica;
+  };
+  tiempo_fallecido?: TiempoEstadistica;
+  tiempo_hospitalizacion_hospital?: TiempoEstadistica;
+  tiempo_hospitalizacion_red?: TiempoEstadistica;
+
+  // Tasas de Ocupación
+  tasa_ocupacion_red?: TasaOcupacion;
+  tasas_ocupacion_hospitales?: any[];
+  tasas_ocupacion_servicios?: any[];
+
+  // Flujos y Demanda
+  flujos_mas_repetidos?: Flujo[];
+  servicios_mayor_demanda?: ServicioDemanda[];
+
+  // Casos Especiales
+  casos_especiales?: CasosEspeciales;
+
+  // Subutilización
+  camas_subutilizadas?: CamaSubutilizada[];
+  servicios_subutilizados?: ServicioSubutilizado[];
+}
