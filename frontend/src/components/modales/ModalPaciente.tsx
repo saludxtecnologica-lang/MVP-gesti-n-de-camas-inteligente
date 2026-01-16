@@ -9,21 +9,21 @@
  * - Se obtienen los teléfonos desde el hospital del paciente usando la lista de hospitales del contexto
  */
 import { useState, useEffect } from 'react';
-import { 
-  User, FileText, Stethoscope, AlertTriangle, RefreshCw, Send, 
-  Heart, Gavel, Files, Clock, Phone, ArrowRight, Building2, BedDouble 
+import {
+  User, FileText, Stethoscope, AlertTriangle, RefreshCw, Send,
+  Heart, Gavel, Files, Clock, Phone, ArrowRight, Building2, BedDouble, History
 } from 'lucide-react';
 import { Modal, Badge, Button, Spinner } from '../common';
 import { useModal } from '../../context/ModalContext';
 import { useApp } from '../../context/AppContext';
-import type { Paciente } from '../../types';
+import type { Paciente, TrazabilidadServicio } from '../../types';
 import {
   formatTipoAislamiento,
   formatTipoEnfermedad,
   formatSexo,
   safeJsonParse
 } from '../../utils';
-import { getDocumentoUrl, getInfoTrasladoPaciente } from '../../services/api';
+import { getDocumentoUrl, getInfoTrasladoPaciente, getTrazabilidadPaciente } from '../../services/api';
 import { ModalDerivacionDirecta } from './ModalDerivacionDirecta';
 
 // ============================================
@@ -70,7 +70,11 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
   // Estado para información de traslado
   const [infoTraslado, setInfoTraslado] = useState<InfoTraslado | null>(null);
   const [cargandoInfoTraslado, setCargandoInfoTraslado] = useState(false);
-  
+
+  // Estado para trazabilidad del paciente
+  const [trazabilidad, setTrazabilidad] = useState<TrazabilidadServicio[]>([]);
+  const [cargandoTrazabilidad, setCargandoTrazabilidad] = useState(false);
+
   // Función para formatear tiempo restante
   const formatTiempoRestante = (segundos: number | null | undefined): string => {
     if (segundos === null || segundos === undefined) return '';
@@ -90,18 +94,20 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
     ? hospitales.find(h => h.id === paciente.hospital_id) 
     : null;
 
-  // Cargar información de traslado cuando se abre el modal
+  // Cargar información de traslado y trazabilidad cuando se abre el modal
   useEffect(() => {
     if (isOpen && paciente?.id) {
       cargarInfoTraslado();
+      cargarTrazabilidad();
     } else {
       setInfoTraslado(null);
+      setTrazabilidad([]);
     }
   }, [isOpen, paciente?.id]);
 
   const cargarInfoTraslado = async () => {
     if (!paciente?.id) return;
-    
+
     try {
       setCargandoInfoTraslado(true);
       const info = await getInfoTrasladoPaciente(paciente.id);
@@ -111,6 +117,21 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
       construirInfoTrasladoLocal();
     } finally {
       setCargandoInfoTraslado(false);
+    }
+  };
+
+  const cargarTrazabilidad = async () => {
+    if (!paciente?.id) return;
+
+    try {
+      setCargandoTrazabilidad(true);
+      const datos = await getTrazabilidadPaciente(paciente.id);
+      setTrazabilidad(datos);
+    } catch (error) {
+      console.error('Error al cargar trazabilidad:', error);
+      setTrazabilidad([]);
+    } finally {
+      setCargandoTrazabilidad(false);
     }
   };
 
@@ -584,6 +605,89 @@ export function ModalPaciente({ isOpen, onClose, paciente }: ModalPacienteProps)
               )}
             </section>
           )}
+
+          {/* ============================================ */}
+          {/* SECCIÓN: TRAZABILIDAD DEL PACIENTE */}
+          {/* ============================================ */}
+          <section className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <h4 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <History className="w-4 h-4" />
+              Historial de Servicios (Trazabilidad)
+            </h4>
+
+            {cargandoTrazabilidad ? (
+              <div className="flex justify-center py-4">
+                <Spinner size="sm" />
+              </div>
+            ) : trazabilidad.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-2">
+                No hay historial de servicios disponible
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {trazabilidad.map((item, index) => {
+                  const formatearFecha = (fecha: string) => {
+                    try {
+                      return new Date(fecha).toLocaleString('es-ES', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      });
+                    } catch {
+                      return fecha;
+                    }
+                  };
+
+                  const formatearDuracion = (dias: number, horas: number) => {
+                    if (dias > 0) {
+                      return horas > 0 ? `${dias}d ${horas}h` : `${dias}d`;
+                    }
+                    return `${horas}h`;
+                  };
+
+                  return (
+                    <div
+                      key={index}
+                      className="bg-white p-3 rounded-lg border border-gray-200 hover:border-blue-300 transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="font-semibold text-gray-800 text-sm mb-1">
+                            {item.servicio_nombre}
+                          </p>
+                          <div className="text-xs text-gray-600 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-600 font-medium">Entrada:</span>
+                              <span>{formatearFecha(item.entrada)}</span>
+                            </div>
+                            {item.salida ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-red-600 font-medium">Salida:</span>
+                                <span>{formatearFecha(item.salida)}</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="text-blue-600 font-medium">Estado:</span>
+                                <span className="text-blue-700 font-semibold">Actualmente en servicio</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="ml-4 text-right">
+                          <div className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                            <Clock className="w-3 h-3 mr-1" />
+                            {formatearDuracion(item.duracion_dias, item.duracion_horas)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
           {/* ============================================ */}
           {/* BOTONES DE ACCIÓN */}
