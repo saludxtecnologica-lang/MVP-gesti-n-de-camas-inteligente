@@ -72,8 +72,13 @@ class EventoPaciente(SQLModel, table=True):
     # ============================================
     # RELACIONES
     # ============================================
-    paciente: "Paciente" = Relationship()
-    hospital: "Hospital" = Relationship()
+    # Especificamos foreign_keys para evitar ambigüedad
+    paciente: "Paciente" = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[EventoPaciente.paciente_id]"}
+    )
+    hospital: "Hospital" = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[EventoPaciente.hospital_id]"}
+    )
 
     # ============================================
     # MÉTODOS DE UTILIDAD
