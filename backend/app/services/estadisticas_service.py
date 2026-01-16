@@ -75,7 +75,7 @@ class EstadisticasService:
             )
         )
         total = session.exec(statement).first() or 0
-        return {"total_ingresos_red": total}
+        return {"total": total}
 
     @staticmethod
     async def calcular_ingresos_hospital(
@@ -176,7 +176,7 @@ class EstadisticasService:
             )
         )
         total = session.exec(statement).first() or 0
-        return {"total_egresos_red": total}
+        return {"total": total}
 
     @staticmethod
     async def calcular_egresos_hospital(
