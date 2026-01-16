@@ -1,13 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import {
   BarChart3, Building2, BedDouble, Users, RefreshCw, Download,
-  Clock, TrendingUp, AlertCircle, Activity, ArrowUpDown
+  Clock, TrendingUp, AlertCircle, Activity, ArrowUpDown, Layers
 } from 'lucide-react';
 import { Spinner } from '../components/common';
-import type { EstadisticasGlobales, EstadisticasCompletas, TiempoEstadistica } from '../types';
+import { useApp } from '../context/AppContext';
+import type {
+  EstadisticasGlobales,
+  EstadisticasCompletas,
+  TiempoEstadistica,
+  Servicio
+} from '../types';
 import * as api from '../services/api';
 
+type TabType = 'hospital' | 'servicio' | 'red';
+
 export function Estadisticas() {
+  const { hospitalSeleccionado, hospitales } = useApp();
+
+  const [tab, setTab] = useState<TabType>('hospital');
   const [estadisticas, setEstadisticas] = useState<EstadisticasGlobales | null>(null);
   const [estadisticasAvanzadas, setEstadisticasAvanzadas] = useState<EstadisticasCompletas | null>(null);
   const [loading, setLoading] = useState(true);
@@ -15,12 +26,38 @@ export function Estadisticas() {
   const [diasPeriodo, setDiasPeriodo] = useState(7);
   const [downloading, setDownloading] = useState(false);
 
+  // Estado para servicios
+  const [servicios, setServicios] = useState<Servicio[]>([]);
+  const [servicioSeleccionado, setServicioSeleccionado] = useState<string | null>(null);
+  const [loadingServicios, setLoadingServicios] = useState(false);
+
+  // Estado para comparaciones
+  const [modoComparacion, setModoComparacion] = useState(false);
+  const [serviciosComparar, setServiciosComparar] = useState<string[]>([]);
+  const [hospitalesComparar, setHospitalesComparar] = useState<string[]>([]);
+
+  // Estado para estadísticas específicas de hospital
+  const [ingresosHospital, setIngresosHospital] = useState<number | null>(null);
+  const [egresosHospital, setEgresosHospital] = useState<number | null>(null);
+  const [loadingHospitalStats, setLoadingHospitalStats] = useState(false);
+
+  // Estado para estadísticas específicas de servicio
+  const [ingresosServicio, setIngresosServicio] = useState<number | null>(null);
+  const [egresosServicio, setEgresosServicio] = useState<number | null>(null);
+  const [ocupacionServicio, setOcupacionServicio] = useState<{ tasa: number; camas_totales: number; camas_ocupadas: number } | null>(null);
+  const [loadingServicioStats, setLoadingServicioStats] = useState(false);
+
+  // Estado para tiempos de hospitalización desglosados
+  const [tiempoHospTotal, setTiempoHospTotal] = useState<TiempoEstadistica | null>(null);
+  const [tiempoHospCasosEspeciales, setTiempoHospCasosEspeciales] = useState<TiempoEstadistica | null>(null);
+  const [tiempoHospSinCasosEspeciales, setTiempoHospSinCasosEspeciales] = useState<TiempoEstadistica | null>(null);
+  const [loadingTiemposHosp, setLoadingTiemposHosp] = useState(false);
+
   const cargarEstadisticas = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Cargar estadísticas básicas y avanzadas en paralelo
       const [basicas, avanzadas] = await Promise.all([
         api.getEstadisticas(),
         api.getEstadisticasCompletas(diasPeriodo)
@@ -35,16 +72,123 @@ export function Estadisticas() {
     }
   };
 
+  const cargarServicios = async () => {
+    if (!hospitalSeleccionado) return;
+
+    try {
+      setLoadingServicios(true);
+      // Usar endpoint existente o crear uno nuevo
+      const response = await fetch(`${api.getApiBase()}/api/servicios/hospital/${hospitalSeleccionado.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        setServicios(data);
+        if (data.length > 0 && !servicioSeleccionado) {
+          setServicioSeleccionado(data[0].id);
+        }
+      }
+    } catch (err) {
+      console.error('Error al cargar servicios:', err);
+    } finally {
+      setLoadingServicios(false);
+    }
+  };
+
+  const cargarEstadisticasHospital = async () => {
+    if (!hospitalSeleccionado) {
+      setIngresosHospital(null);
+      setEgresosHospital(null);
+      return;
+    }
+
+    try {
+      setLoadingHospitalStats(true);
+      const [ingresos, egresos] = await Promise.all([
+        api.getIngresosHospital(hospitalSeleccionado.id, diasPeriodo),
+        api.getEgresosHospital(hospitalSeleccionado.id, diasPeriodo)
+      ]);
+      setIngresosHospital(ingresos.total);
+      setEgresosHospital(egresos.total);
+    } catch (err) {
+      console.error('Error al cargar estadísticas del hospital:', err);
+      setIngresosHospital(null);
+      setEgresosHospital(null);
+    } finally {
+      setLoadingHospitalStats(false);
+    }
+  };
+
+  const cargarEstadisticasServicio = async () => {
+    if (!servicioSeleccionado) {
+      setIngresosServicio(null);
+      setEgresosServicio(null);
+      setOcupacionServicio(null);
+      return;
+    }
+
+    try {
+      setLoadingServicioStats(true);
+      const [ingresos, egresos, ocupacion] = await Promise.all([
+        api.getIngresosServicio(servicioSeleccionado, diasPeriodo),
+        api.getEgresosServicio(servicioSeleccionado, diasPeriodo),
+        api.getOcupacionServicio(servicioSeleccionado)
+      ]);
+      setIngresosServicio(ingresos.total);
+      setEgresosServicio(egresos.total);
+      setOcupacionServicio(ocupacion);
+    } catch (err) {
+      console.error('Error al cargar estadísticas del servicio:', err);
+      setIngresosServicio(null);
+      setEgresosServicio(null);
+      setOcupacionServicio(null);
+    } finally {
+      setLoadingServicioStats(false);
+    }
+  };
+
+  const cargarTiemposHospitalizacion = async () => {
+    try {
+      setLoadingTiemposHosp(true);
+      const [total, conCasosEspeciales, sinCasosEspeciales] = await Promise.all([
+        api.getTiempoHospitalizacion(null, null, diasPeriodo),
+        api.getTiempoHospitalizacion(null, true, diasPeriodo),
+        api.getTiempoHospitalizacion(null, false, diasPeriodo)
+      ]);
+      setTiempoHospTotal(total);
+      setTiempoHospCasosEspeciales(conCasosEspeciales);
+      setTiempoHospSinCasosEspeciales(sinCasosEspeciales);
+    } catch (err) {
+      console.error('Error al cargar tiempos de hospitalización:', err);
+      setTiempoHospTotal(null);
+      setTiempoHospCasosEspeciales(null);
+      setTiempoHospSinCasosEspeciales(null);
+    } finally {
+      setLoadingTiemposHosp(false);
+    }
+  };
+
   useEffect(() => {
     cargarEstadisticas();
+    cargarTiemposHospitalizacion();
   }, [diasPeriodo]);
+
+  useEffect(() => {
+    if (hospitalSeleccionado) {
+      cargarServicios();
+      cargarEstadisticasHospital();
+    }
+  }, [hospitalSeleccionado, diasPeriodo]);
+
+  useEffect(() => {
+    if (servicioSeleccionado) {
+      cargarEstadisticasServicio();
+    }
+  }, [servicioSeleccionado, diasPeriodo]);
 
   const handleDownload = async (formato: 'json' | 'csv') => {
     try {
       setDownloading(true);
       const blob = await api.downloadEstadisticas(diasPeriodo, formato);
 
-      // Crear un link temporal y descargarlo
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -81,12 +225,12 @@ export function Estadisticas() {
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex items-center gap-2 mb-3">
           {icon}
-          <h4 className="font-semibold text-gray-700">{titulo}</h4>
+          <h4 className="font-semibold text-gray-700 text-sm">{titulo}</h4>
         </div>
-        <div className="grid grid-cols-3 gap-4 text-center">
+        <div className="grid grid-cols-3 gap-3 text-center">
           <div>
             <p className="text-xs text-gray-500 mb-1">Promedio</p>
-            <p className="text-lg font-bold text-blue-600">{formatearTiempo(tiempo.promedio)}</p>
+            <p className="text-base font-bold text-blue-600">{formatearTiempo(tiempo.promedio)}</p>
           </div>
           <div>
             <p className="text-xs text-gray-500 mb-1">Mínimo</p>
@@ -182,390 +326,489 @@ export function Estadisticas() {
         </div>
       </div>
 
-      {/* Resumen global */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Resumen Global</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-blue-50 rounded-lg p-4 text-center">
-            <BedDouble className="w-8 h-8 mx-auto mb-2 text-blue-600" />
-            <p className="text-3xl font-bold text-blue-800">
-              {estadisticas.total_camas_sistema}
-            </p>
-            <p className="text-sm text-blue-600">Camas Totales</p>
-          </div>
-          <div className="bg-green-50 rounded-lg p-4 text-center">
-            <Users className="w-8 h-8 mx-auto mb-2 text-green-600" />
-            <p className="text-3xl font-bold text-green-800">
-              {estadisticas.total_pacientes_sistema}
-            </p>
-            <p className="text-sm text-green-600">Pacientes Hospitalizados</p>
-          </div>
-          <div className="bg-purple-50 rounded-lg p-4 text-center">
-            <BarChart3 className="w-8 h-8 mx-auto mb-2 text-purple-600" />
-            <p className="text-3xl font-bold text-purple-800">
-              {estadisticas.ocupacion_promedio.toFixed(1)}%
-            </p>
-            <p className="text-sm text-purple-600">Ocupación Promedio</p>
-          </div>
+      {/* Tabs de navegación */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="border-b border-gray-200">
+          <nav className="flex -mb-px">
+            <button
+              onClick={() => setTab('hospital')}
+              className={`flex items-center gap-2 px-6 py-3 border-b-2 font-medium text-sm transition-colors ${
+                tab === 'hospital'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Building2 className="w-4 h-4" />
+              Por Hospital
+              {hospitalSeleccionado && (
+                <span className="ml-1 text-xs text-gray-500">({hospitalSeleccionado.nombre})</span>
+              )}
+            </button>
+            <button
+              onClick={() => setTab('servicio')}
+              className={`flex items-center gap-2 px-6 py-3 border-b-2 font-medium text-sm transition-colors ${
+                tab === 'servicio'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+              disabled={!hospitalSeleccionado}
+            >
+              <Layers className="w-4 h-4" />
+              Por Servicio
+            </button>
+            <button
+              onClick={() => setTab('red')}
+              className={`flex items-center gap-2 px-6 py-3 border-b-2 font-medium text-sm transition-colors ${
+                tab === 'red'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              Red de Hospitales
+            </button>
+          </nav>
         </div>
-      </div>
 
-      {/* Ingresos y Egresos */}
-      {estadisticasAvanzadas && (
-        <>
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-green-600" />
-              Ingresos y Egresos (últimos {diasPeriodo} días)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {estadisticasAvanzadas.ingresos_red && (
-                <div className="bg-green-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-2">Ingresos Totales de Red</p>
-                  <p className="text-4xl font-bold text-green-700">
-                    {estadisticasAvanzadas.ingresos_red.total}
-                  </p>
-                  {estadisticasAvanzadas.ingresos_red.desglose && (
-                    <div className="mt-3 space-y-1">
-                      <p className="text-xs text-gray-500">Desglose:</p>
-                      {Object.entries(estadisticasAvanzadas.ingresos_red.desglose).map(([tipo, cantidad]) => (
-                        <div key={tipo} className="flex justify-between text-sm">
-                          <span className="text-gray-600">{tipo}:</span>
-                          <span className="font-semibold text-gray-800">{cantidad as number}</span>
+        <div className="p-6">
+          {/* SECCIÓN: POR HOSPITAL */}
+          {tab === 'hospital' && (
+            <div className="space-y-6">
+              {!hospitalSeleccionado ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>Selecciona un hospital en la barra superior para ver sus estadísticas</p>
+                </div>
+              ) : (
+                <>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                    Estadísticas de {hospitalSeleccionado.nombre}
+                  </h3>
+
+                  {/* Información Global del Hospital */}
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
+                    <h4 className="text-md font-semibold text-gray-800 mb-4">Información Global</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                        <TrendingUp className="w-6 h-6 mx-auto mb-2 text-green-600" />
+                        <p className="text-2xl font-bold text-gray-800">
+                          {loadingHospitalStats ? (
+                            <span className="text-sm text-gray-400">Cargando...</span>
+                          ) : ingresosHospital !== null ? (
+                            ingresosHospital
+                          ) : (
+                            '--'
+                          )}
+                        </p>
+                        <p className="text-sm text-gray-600">Ingresos ({diasPeriodo === 1 ? 'hoy' : `${diasPeriodo} días`})</p>
+                      </div>
+                      <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                        <ArrowUpDown className="w-6 h-6 mx-auto mb-2 text-blue-600" />
+                        <p className="text-2xl font-bold text-gray-800">
+                          {loadingHospitalStats ? (
+                            <span className="text-sm text-gray-400">Cargando...</span>
+                          ) : egresosHospital !== null ? (
+                            egresosHospital
+                          ) : (
+                            '--'
+                          )}
+                        </p>
+                        <p className="text-sm text-gray-600">Egresos ({diasPeriodo === 1 ? 'hoy' : `${diasPeriodo} días`})</p>
+                      </div>
+                      <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                        <BarChart3 className="w-6 h-6 mx-auto mb-2 text-purple-600" />
+                        <p className="text-2xl font-bold text-gray-800">
+                          {estadisticas.hospitales.find(h => h.hospital_id === hospitalSeleccionado.id)?.ocupacion_porcentaje?.toFixed(1) || '0'}%
+                        </p>
+                        <p className="text-sm text-gray-600">Ocupación Actual</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Servicios con Mayor y Menor Demanda */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h4 className="text-md font-semibold text-gray-800 mb-4">Demanda por Servicio</h4>
+                    <p className="text-sm text-gray-500">En desarrollo...</p>
+                  </div>
+
+                  {/* Tiempos de Espera y Procesos */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-orange-600" />
+                      Tiempos de Espera y Procesos Hospitalarios
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {renderTiempoCard('Espera de Cama', estadisticasAvanzadas?.tiempo_espera_cama, <Clock className="w-4 h-4 text-orange-600" />)}
+                      {renderTiempoCard('Respuesta Derivación', estadisticasAvanzadas?.tiempo_derivacion_pendiente, <Clock className="w-4 h-4 text-yellow-600" />)}
+                      {renderTiempoCard('Paciente en Traslado', estadisticasAvanzadas?.tiempo_traslado_saliente, <ArrowUpDown className="w-4 h-4 text-blue-600" />)}
+                      {renderTiempoCard('Confirmación Traslado', estadisticasAvanzadas?.tiempo_confirmacion_traslado, <Clock className="w-4 h-4 text-purple-600" />)}
+                      {estadisticasAvanzadas?.tiempo_alta && renderTiempoCard('Alta Sugerida', estadisticasAvanzadas.tiempo_alta.alta_sugerida, <Clock className="w-4 h-4 text-green-600" />)}
+                      {estadisticasAvanzadas?.tiempo_alta && renderTiempoCard('Alta Completada', estadisticasAvanzadas.tiempo_alta.alta_completada, <Clock className="w-4 h-4 text-teal-600" />)}
+                      {renderTiempoCard('Egreso Fallecido', estadisticasAvanzadas?.tiempo_fallecido, <Clock className="w-4 h-4 text-gray-600" />)}
+                      {renderTiempoCard('Hospitalización Total', estadisticasAvanzadas?.tiempo_hospitalizacion_hospital, <Activity className="w-4 h-4 text-indigo-600" />)}
+                    </div>
+                  </div>
+
+                  {/* Casos Especiales */}
+                  {estadisticasAvanzadas?.casos_especiales && estadisticasAvanzadas.casos_especiales.total > 0 && (
+                    <div className="bg-white rounded-lg shadow p-6">
+                      <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <AlertCircle className="w-5 h-5 text-yellow-600" />
+                        Casos Especiales
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="bg-yellow-50 rounded-lg p-4 text-center">
+                          <p className="text-2xl font-bold text-yellow-700">
+                            {estadisticasAvanzadas.casos_especiales.total}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">Total</p>
                         </div>
-                      ))}
+                        <div className="bg-red-50 rounded-lg p-4 text-center">
+                          <p className="text-2xl font-bold text-red-700">
+                            {estadisticasAvanzadas.casos_especiales.cardiocirugia}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">Cardiocirugía</p>
+                        </div>
+                        <div className="bg-orange-50 rounded-lg p-4 text-center">
+                          <p className="text-2xl font-bold text-orange-700">
+                            {estadisticasAvanzadas.casos_especiales.caso_social}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">Casos Sociales</p>
+                        </div>
+                        <div className="bg-purple-50 rounded-lg p-4 text-center">
+                          <p className="text-2xl font-bold text-purple-700">
+                            {estadisticasAvanzadas.casos_especiales.caso_socio_judicial}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">Socio-Judiciales</p>
+                        </div>
+                      </div>
                     </div>
                   )}
-                </div>
-              )}
 
-              {estadisticasAvanzadas.egresos_red && (
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-2">Egresos Totales de Red</p>
-                  <p className="text-4xl font-bold text-blue-700">
-                    {estadisticasAvanzadas.egresos_red.total}
-                  </p>
-                  {estadisticasAvanzadas.egresos_red.desglose && (
-                    <div className="mt-3 space-y-1">
-                      <p className="text-xs text-gray-500">Desglose:</p>
-                      {Object.entries(estadisticasAvanzadas.egresos_red.desglose).map(([tipo, cantidad]) => (
-                        <div key={tipo} className="flex justify-between text-sm">
-                          <span className="text-gray-600">{tipo}:</span>
-                          <span className="font-semibold text-gray-800">{cantidad as number}</span>
-                        </div>
-                      ))}
+                  {/* Flujos más repetidos */}
+                  {estadisticasAvanzadas?.flujos_mas_repetidos && estadisticasAvanzadas.flujos_mas_repetidos.length > 0 && (
+                    <div className="bg-white rounded-lg shadow p-6">
+                      <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <ArrowUpDown className="w-5 h-5 text-blue-600" />
+                        Flujos Más Repetidos (Origen → Destino)
+                      </h4>
+                      <div className="space-y-2">
+                        {estadisticasAvanzadas.flujos_mas_repetidos.map((flujo, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100">
+                            <span className="text-sm text-gray-700">{flujo.flujo}</span>
+                            <span className="font-semibold text-blue-600">{flujo.cantidad} veces</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
-                </div>
+
+                  {/* Camas Subutilizadas */}
+                  {estadisticasAvanzadas?.camas_subutilizadas && estadisticasAvanzadas.camas_subutilizadas.length > 0 && (
+                    <div className="bg-white rounded-lg shadow p-6">
+                      <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <BedDouble className="w-5 h-5 text-gray-600" />
+                        Camas Subutilizadas
+                      </h4>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cama</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Tiempo Libre</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {estadisticasAvanzadas.camas_subutilizadas
+                              .filter(cama => {
+                                // Filtrar solo camas del hospital seleccionado (si es necesario)
+                                return true;
+                              })
+                              .map((cama) => (
+                              <tr key={cama.cama_id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm text-gray-900">{cama.identificador}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{cama.servicio_nombre}</td>
+                                <td className="px-4 py-3 text-center text-sm font-semibold text-green-600">
+                                  {cama.tiempo_libre_horas.toFixed(1)} hrs
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
-          </div>
+          )}
 
-          {/* Tiempos de Espera y Procesos */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-orange-600" />
-              Tiempos de Espera y Procesos
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {renderTiempoCard('Espera de Cama', estadisticasAvanzadas.tiempo_espera_cama, <Clock className="w-4 h-4 text-orange-600" />)}
-              {renderTiempoCard('Derivación Pendiente', estadisticasAvanzadas.tiempo_derivacion_pendiente, <Clock className="w-4 h-4 text-yellow-600" />)}
-              {renderTiempoCard('Traslado Saliente', estadisticasAvanzadas.tiempo_traslado_saliente, <ArrowUpDown className="w-4 h-4 text-blue-600" />)}
-              {renderTiempoCard('Confirmación Traslado', estadisticasAvanzadas.tiempo_confirmacion_traslado, <Clock className="w-4 h-4 text-purple-600" />)}
-              {estadisticasAvanzadas.tiempo_alta && renderTiempoCard('Alta Sugerida', estadisticasAvanzadas.tiempo_alta.alta_sugerida, <Clock className="w-4 h-4 text-green-600" />)}
-              {estadisticasAvanzadas.tiempo_alta && renderTiempoCard('Alta Completada', estadisticasAvanzadas.tiempo_alta.alta_completada, <Clock className="w-4 h-4 text-teal-600" />)}
-              {renderTiempoCard('Proceso de Fallecimiento', estadisticasAvanzadas.tiempo_fallecido, <Clock className="w-4 h-4 text-gray-600" />)}
-              {renderTiempoCard('Hospitalización (Hospital)', estadisticasAvanzadas.tiempo_hospitalizacion_hospital, <Activity className="w-4 h-4 text-indigo-600" />)}
-              {renderTiempoCard('Hospitalización (Red)', estadisticasAvanzadas.tiempo_hospitalizacion_red, <Activity className="w-4 h-4 text-blue-600" />)}
-            </div>
-          </div>
-
-          {/* Tasas de Ocupación */}
-          {estadisticasAvanzadas.tasa_ocupacion_red && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-purple-600" />
-                Tasas de Ocupación
-              </h3>
-              <div className="bg-purple-50 rounded-lg p-6 mb-4">
-                <p className="text-sm text-gray-600 mb-2">Ocupación de Red</p>
-                <div className="flex items-center gap-4">
-                  <div className="flex-1">
-                    <div className="w-full bg-gray-200 rounded-full h-6">
-                      <div
-                        className={`h-6 rounded-full flex items-center justify-center text-white text-sm font-semibold ${
-                          estadisticasAvanzadas.tasa_ocupacion_red.tasa_ocupacion >= 90 ? 'bg-red-500' :
-                          estadisticasAvanzadas.tasa_ocupacion_red.tasa_ocupacion >= 70 ? 'bg-yellow-500' :
-                          'bg-green-500'
-                        }`}
-                        style={{ width: `${Math.min(estadisticasAvanzadas.tasa_ocupacion_red.tasa_ocupacion, 100)}%` }}
+          {/* SECCIÓN: POR SERVICIO */}
+          {tab === 'servicio' && (
+            <div className="space-y-6">
+              {!hospitalSeleccionado ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Layers className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>Selecciona un hospital en la barra superior</p>
+                </div>
+              ) : (
+                <>
+                  {/* Selector de Servicio */}
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Seleccionar Servicio
+                      </label>
+                      <select
+                        value={servicioSeleccionado || ''}
+                        onChange={(e) => setServicioSeleccionado(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled={loadingServicios || servicios.length === 0}
                       >
-                        {estadisticasAvanzadas.tasa_ocupacion_red.tasa_ocupacion.toFixed(1)}%
-                      </div>
+                        {loadingServicios ? (
+                          <option>Cargando servicios...</option>
+                        ) : servicios.length === 0 ? (
+                          <option>No hay servicios disponibles</option>
+                        ) : (
+                          servicios.map(servicio => (
+                            <option key={servicio.id} value={servicio.id}>
+                              {servicio.nombre} ({servicio.tipo})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+
+                    <div className="pt-6">
+                      <button
+                        onClick={() => setModoComparacion(!modoComparacion)}
+                        className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                          modoComparacion
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {modoComparacion ? 'Salir de Comparación' : 'Comparar Servicios'}
+                      </button>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold text-purple-700">
-                      {estadisticasAvanzadas.tasa_ocupacion_red.camas_ocupadas} / {estadisticasAvanzadas.tasa_ocupacion_red.camas_totales}
-                    </p>
-                    <p className="text-xs text-gray-500">Ocupadas / Totales</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* Flujos más repetidos */}
-          {estadisticasAvanzadas.flujos_mas_repetidos && estadisticasAvanzadas.flujos_mas_repetidos.length > 0 && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <ArrowUpDown className="w-5 h-5 text-blue-600" />
-                Flujos Más Repetidos
-              </h3>
-              <div className="space-y-2">
-                {estadisticasAvanzadas.flujos_mas_repetidos.map((flujo, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <span className="text-sm text-gray-700">{flujo.flujo}</span>
-                    <span className="font-semibold text-blue-600">{flujo.cantidad} veces</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  {servicioSeleccionado && !modoComparacion ? (
+                    <div className="space-y-6">
+                      <h3 className="text-lg font-semibold text-gray-800">
+                        Estadísticas del Servicio: {servicios.find(s => s.id === servicioSeleccionado)?.nombre}
+                      </h3>
 
-          {/* Servicios con Mayor Demanda */}
-          {estadisticasAvanzadas.servicios_mayor_demanda && estadisticasAvanzadas.servicios_mayor_demanda.length > 0 && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-red-600" />
-                Servicios con Mayor Demanda
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ocupación</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En Espera</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Demanda</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {estadisticasAvanzadas.servicios_mayor_demanda.map((servicio) => (
-                      <tr key={servicio.servicio_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-900">{servicio.servicio_nombre}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`text-sm font-semibold ${
-                            servicio.tasa_ocupacion >= 90 ? 'text-red-600' :
-                            servicio.tasa_ocupacion >= 70 ? 'text-yellow-600' :
-                            'text-green-600'
-                          }`}>
-                            {servicio.tasa_ocupacion.toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center text-sm font-semibold text-orange-600">
-                          {servicio.pacientes_en_espera}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            {servicio.demanda_score.toFixed(1)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Casos Especiales */}
-          {estadisticasAvanzadas.casos_especiales && estadisticasAvanzadas.casos_especiales.total > 0 && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-yellow-600" />
-                Casos Especiales
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-yellow-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-yellow-700">
-                    {estadisticasAvanzadas.casos_especiales.total}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">Total</p>
-                </div>
-                <div className="bg-red-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-red-700">
-                    {estadisticasAvanzadas.casos_especiales.cardiocirugia}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">Cardiocirugía</p>
-                </div>
-                <div className="bg-orange-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-orange-700">
-                    {estadisticasAvanzadas.casos_especiales.caso_social}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">Casos Sociales</p>
-                </div>
-                <div className="bg-purple-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-purple-700">
-                    {estadisticasAvanzadas.casos_especiales.caso_socio_judicial}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">Casos Socio-Judiciales</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Subutilización */}
-          {estadisticasAvanzadas.servicios_subutilizados && estadisticasAvanzadas.servicios_subutilizados.length > 0 && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-gray-600" />
-                Servicios Subutilizados
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Camas Libres</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Camas Totales</th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">% Libre</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {estadisticasAvanzadas.servicios_subutilizados.map((servicio) => (
-                      <tr key={servicio.servicio_id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-900">{servicio.servicio_nombre}</td>
-                        <td className="px-4 py-3 text-center text-sm font-semibold text-green-600">
-                          {servicio.camas_libres}
-                        </td>
-                        <td className="px-4 py-3 text-center text-sm text-gray-600">
-                          {servicio.camas_totales}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            {servicio.tasa_libre.toFixed(1)}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Estadísticas por hospital */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b bg-gray-50">
-          <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-gray-600" />
-            Estadísticas por Hospital
-          </h3>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Hospital
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total Camas
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Libres
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ocupadas
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  En Traslado
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Limpieza
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Bloqueadas
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Espera
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ocupación
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {estadisticas.hospitales.map((hospital) => {
-                const ocupacion = hospital.ocupacion_porcentaje ?? hospital.porcentaje_ocupacion ?? 0;
-                const espera = hospital.pacientes_en_espera ?? hospital.pacientes_espera ?? 0;
-
-                return (
-                  <tr key={hospital.hospital_id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {hospital.hospital_nombre}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900">
-                      {hospital.total_camas}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="text-sm font-medium text-green-600">
-                        {hospital.camas_libres}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="text-sm font-medium text-blue-600">
-                        {hospital.camas_ocupadas}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="text-sm font-medium text-yellow-600">
-                        {hospital.camas_traslado}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="text-sm font-medium text-gray-600">
-                        {hospital.camas_limpieza}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="text-sm font-medium text-red-600">
-                        {hospital.camas_bloqueadas}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="text-sm font-medium text-orange-600">
-                        {espera}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <div className="flex items-center justify-center">
-                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                          <div
-                            className={`h-2 rounded-full ${
-                              ocupacion >= 90 ? 'bg-red-500' :
-                              ocupacion >= 70 ? 'bg-yellow-500' :
-                              'bg-green-500'
-                            }`}
-                            style={{ width: `${Math.min(ocupacion, 100)}%` }}
-                          />
+                      {/* Información Global del Servicio */}
+                      <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-6">
+                        <h4 className="text-md font-semibold text-gray-800 mb-4">Información Global del Servicio</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                            <TrendingUp className="w-6 h-6 mx-auto mb-2 text-green-600" />
+                            <p className="text-2xl font-bold text-gray-800">
+                              {loadingServicioStats ? (
+                                <span className="text-sm text-gray-400">Cargando...</span>
+                              ) : ingresosServicio !== null ? (
+                                ingresosServicio
+                              ) : (
+                                '--'
+                              )}
+                            </p>
+                            <p className="text-sm text-gray-600">Ingresos ({diasPeriodo === 1 ? 'hoy' : `${diasPeriodo} días`})</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                            <ArrowUpDown className="w-6 h-6 mx-auto mb-2 text-blue-600" />
+                            <p className="text-2xl font-bold text-gray-800">
+                              {loadingServicioStats ? (
+                                <span className="text-sm text-gray-400">Cargando...</span>
+                              ) : egresosServicio !== null ? (
+                                egresosServicio
+                              ) : (
+                                '--'
+                              )}
+                            </p>
+                            <p className="text-sm text-gray-600">Egresos ({diasPeriodo === 1 ? 'hoy' : `${diasPeriodo} días`})</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                            <BarChart3 className="w-6 h-6 mx-auto mb-2 text-purple-600" />
+                            <p className="text-2xl font-bold text-gray-800">
+                              {loadingServicioStats ? (
+                                <span className="text-sm text-gray-400">Cargando...</span>
+                              ) : ocupacionServicio !== null ? (
+                                `${ocupacionServicio.tasa.toFixed(1)}%`
+                              ) : (
+                                '--'
+                              )}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              Ocupación ({ocupacionServicio ? `${ocupacionServicio.camas_ocupadas}/${ocupacionServicio.camas_totales}` : ''})
+                            </p>
+                          </div>
                         </div>
-                        <span className="text-sm font-medium text-gray-900">
-                          {ocupacion.toFixed(0)}%
-                        </span>
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+
+                      {/* Tiempos de Espera y Procesos del Servicio */}
+                      <div className="bg-white rounded-lg shadow p-6">
+                        <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                          <Clock className="w-5 h-5 text-orange-600" />
+                          Tiempos de Espera y Procesos
+                        </h4>
+                        <p className="text-sm text-gray-500">
+                          Los tiempos mostrados son a nivel de red. Filtrado por servicio en desarrollo...
+                        </p>
+                      </div>
+                    </div>
+                  ) : modoComparacion ? (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+                      <p className="text-gray-700">Modo de comparación entre servicios en desarrollo...</p>
+                      <p className="text-sm text-gray-500 mt-2">
+                        Selecciona múltiples servicios para comparar sus métricas
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <p>Selecciona un servicio para ver sus estadísticas</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* SECCIÓN: RED DE HOSPITALES */}
+          {tab === 'red' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-800">Estadísticas de la Red</h3>
+                <button
+                  onClick={() => setModoComparacion(!modoComparacion)}
+                  className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                    modoComparacion
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {modoComparacion ? 'Salir de Comparación' : 'Comparar Hospitales'}
+                </button>
+              </div>
+
+              {/* Información Global de Red */}
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-6">
+                <h4 className="text-md font-semibold text-gray-800 mb-4">Información Global de Red</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                    <BedDouble className="w-6 h-6 mx-auto mb-2 text-blue-600" />
+                    <p className="text-2xl font-bold text-gray-800">
+                      {estadisticas.total_camas_sistema}
+                    </p>
+                    <p className="text-sm text-gray-600">Camas Totales</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                    <Users className="w-6 h-6 mx-auto mb-2 text-green-600" />
+                    <p className="text-2xl font-bold text-gray-800">
+                      {estadisticasAvanzadas?.ingresos_red?.total || 0}
+                    </p>
+                    <p className="text-sm text-gray-600">Ingresos de Red</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                    <BarChart3 className="w-6 h-6 mx-auto mb-2 text-purple-600" />
+                    <p className="text-2xl font-bold text-gray-800">
+                      {estadisticas.ocupacion_promedio.toFixed(1)}%
+                    </p>
+                    <p className="text-sm text-gray-600">Ocupación Promedio</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tiempos de Hospitalización en Red */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-indigo-600" />
+                  Tiempos de Hospitalización en Red
+                </h4>
+                {loadingTiemposHosp ? (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-gray-500">Cargando tiempos de hospitalización...</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {renderTiempoCard('Total (Todos los Pacientes)', tiempoHospTotal, <Activity className="w-4 h-4 text-indigo-600" />)}
+                    {renderTiempoCard('Solo Casos Especiales', tiempoHospCasosEspeciales, <AlertCircle className="w-4 h-4 text-yellow-600" />)}
+                    {renderTiempoCard('Sin Casos Especiales', tiempoHospSinCasosEspeciales, <Activity className="w-4 h-4 text-green-600" />)}
+                  </div>
+                )}
+              </div>
+
+              {/* Estadísticas por Hospital */}
+              <div className="bg-white rounded-lg shadow overflow-hidden">
+                <div className="px-6 py-4 border-b bg-gray-50">
+                  <h4 className="text-md font-semibold text-gray-800 flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-gray-600" />
+                    Comparativa por Hospital
+                  </h4>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hospital</th>
+                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total Camas</th>
+                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Libres</th>
+                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ocupadas</th>
+                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ocupación</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {estadisticas.hospitales.map((hospital) => {
+                        const ocupacion = hospital.ocupacion_porcentaje ?? 0;
+                        return (
+                          <tr key={hospital.hospital_id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">
+                                {hospital.hospital_nombre}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900">
+                              {hospital.total_camas}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <span className="text-sm font-medium text-green-600">
+                                {hospital.camas_libres}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <span className="text-sm font-medium text-blue-600">
+                                {hospital.camas_ocupadas}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-center">
+                              <div className="flex items-center justify-center">
+                                <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      ocupacion >= 90 ? 'bg-red-500' :
+                                      ocupacion >= 70 ? 'bg-yellow-500' :
+                                      'bg-green-500'
+                                    }`}
+                                    style={{ width: `${Math.min(ocupacion, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="text-sm font-medium text-gray-900">
+                                  {ocupacion.toFixed(0)}%
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
