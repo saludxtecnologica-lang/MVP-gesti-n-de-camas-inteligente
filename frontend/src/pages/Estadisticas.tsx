@@ -36,6 +36,23 @@ export function Estadisticas() {
   const [serviciosComparar, setServiciosComparar] = useState<string[]>([]);
   const [hospitalesComparar, setHospitalesComparar] = useState<string[]>([]);
 
+  // Estado para estadísticas específicas de hospital
+  const [ingresosHospital, setIngresosHospital] = useState<number | null>(null);
+  const [egresosHospital, setEgresosHospital] = useState<number | null>(null);
+  const [loadingHospitalStats, setLoadingHospitalStats] = useState(false);
+
+  // Estado para estadísticas específicas de servicio
+  const [ingresosServicio, setIngresosServicio] = useState<number | null>(null);
+  const [egresosServicio, setEgresosServicio] = useState<number | null>(null);
+  const [ocupacionServicio, setOcupacionServicio] = useState<{ tasa: number; camas_totales: number; camas_ocupadas: number } | null>(null);
+  const [loadingServicioStats, setLoadingServicioStats] = useState(false);
+
+  // Estado para tiempos de hospitalización desglosados
+  const [tiempoHospTotal, setTiempoHospTotal] = useState<TiempoEstadistica | null>(null);
+  const [tiempoHospCasosEspeciales, setTiempoHospCasosEspeciales] = useState<TiempoEstadistica | null>(null);
+  const [tiempoHospSinCasosEspeciales, setTiempoHospSinCasosEspeciales] = useState<TiempoEstadistica | null>(null);
+  const [loadingTiemposHosp, setLoadingTiemposHosp] = useState(false);
+
   const cargarEstadisticas = async () => {
     try {
       setLoading(true);
@@ -76,15 +93,96 @@ export function Estadisticas() {
     }
   };
 
+  const cargarEstadisticasHospital = async () => {
+    if (!hospitalSeleccionado) {
+      setIngresosHospital(null);
+      setEgresosHospital(null);
+      return;
+    }
+
+    try {
+      setLoadingHospitalStats(true);
+      const [ingresos, egresos] = await Promise.all([
+        api.getIngresosHospital(hospitalSeleccionado.id, diasPeriodo),
+        api.getEgresosHospital(hospitalSeleccionado.id, diasPeriodo)
+      ]);
+      setIngresosHospital(ingresos.total);
+      setEgresosHospital(egresos.total);
+    } catch (err) {
+      console.error('Error al cargar estadísticas del hospital:', err);
+      setIngresosHospital(null);
+      setEgresosHospital(null);
+    } finally {
+      setLoadingHospitalStats(false);
+    }
+  };
+
+  const cargarEstadisticasServicio = async () => {
+    if (!servicioSeleccionado) {
+      setIngresosServicio(null);
+      setEgresosServicio(null);
+      setOcupacionServicio(null);
+      return;
+    }
+
+    try {
+      setLoadingServicioStats(true);
+      const [ingresos, egresos, ocupacion] = await Promise.all([
+        api.getIngresosServicio(servicioSeleccionado, diasPeriodo),
+        api.getEgresosServicio(servicioSeleccionado, diasPeriodo),
+        api.getOcupacionServicio(servicioSeleccionado)
+      ]);
+      setIngresosServicio(ingresos.total);
+      setEgresosServicio(egresos.total);
+      setOcupacionServicio(ocupacion);
+    } catch (err) {
+      console.error('Error al cargar estadísticas del servicio:', err);
+      setIngresosServicio(null);
+      setEgresosServicio(null);
+      setOcupacionServicio(null);
+    } finally {
+      setLoadingServicioStats(false);
+    }
+  };
+
+  const cargarTiemposHospitalizacion = async () => {
+    try {
+      setLoadingTiemposHosp(true);
+      const [total, conCasosEspeciales, sinCasosEspeciales] = await Promise.all([
+        api.getTiempoHospitalizacion(null, null, diasPeriodo),
+        api.getTiempoHospitalizacion(null, true, diasPeriodo),
+        api.getTiempoHospitalizacion(null, false, diasPeriodo)
+      ]);
+      setTiempoHospTotal(total);
+      setTiempoHospCasosEspeciales(conCasosEspeciales);
+      setTiempoHospSinCasosEspeciales(sinCasosEspeciales);
+    } catch (err) {
+      console.error('Error al cargar tiempos de hospitalización:', err);
+      setTiempoHospTotal(null);
+      setTiempoHospCasosEspeciales(null);
+      setTiempoHospSinCasosEspeciales(null);
+    } finally {
+      setLoadingTiemposHosp(false);
+    }
+  };
+
   useEffect(() => {
     cargarEstadisticas();
+    cargarTiemposHospitalizacion();
   }, [diasPeriodo]);
 
   useEffect(() => {
     if (hospitalSeleccionado) {
       cargarServicios();
+      cargarEstadisticasHospital();
     }
-  }, [hospitalSeleccionado]);
+  }, [hospitalSeleccionado, diasPeriodo]);
+
+  useEffect(() => {
+    if (servicioSeleccionado) {
+      cargarEstadisticasServicio();
+    }
+  }, [servicioSeleccionado, diasPeriodo]);
 
   const handleDownload = async (formato: 'json' | 'csv') => {
     try {
@@ -294,25 +392,35 @@ export function Estadisticas() {
                       <div className="bg-white rounded-lg p-4 text-center shadow-sm">
                         <TrendingUp className="w-6 h-6 mx-auto mb-2 text-green-600" />
                         <p className="text-2xl font-bold text-gray-800">
-                          {/* Aquí irían los ingresos del hospital */}
-                          --
+                          {loadingHospitalStats ? (
+                            <span className="text-sm text-gray-400">Cargando...</span>
+                          ) : ingresosHospital !== null ? (
+                            ingresosHospital
+                          ) : (
+                            '--'
+                          )}
                         </p>
-                        <p className="text-sm text-gray-600">Ingresos</p>
+                        <p className="text-sm text-gray-600">Ingresos ({diasPeriodo === 1 ? 'hoy' : `${diasPeriodo} días`})</p>
                       </div>
                       <div className="bg-white rounded-lg p-4 text-center shadow-sm">
                         <ArrowUpDown className="w-6 h-6 mx-auto mb-2 text-blue-600" />
                         <p className="text-2xl font-bold text-gray-800">
-                          {/* Aquí irían los egresos del hospital */}
-                          --
+                          {loadingHospitalStats ? (
+                            <span className="text-sm text-gray-400">Cargando...</span>
+                          ) : egresosHospital !== null ? (
+                            egresosHospital
+                          ) : (
+                            '--'
+                          )}
                         </p>
-                        <p className="text-sm text-gray-600">Egresos</p>
+                        <p className="text-sm text-gray-600">Egresos ({diasPeriodo === 1 ? 'hoy' : `${diasPeriodo} días`})</p>
                       </div>
                       <div className="bg-white rounded-lg p-4 text-center shadow-sm">
                         <BarChart3 className="w-6 h-6 mx-auto mb-2 text-purple-600" />
                         <p className="text-2xl font-bold text-gray-800">
                           {estadisticas.hospitales.find(h => h.hospital_id === hospitalSeleccionado.id)?.ocupacion_porcentaje?.toFixed(1) || '0'}%
                         </p>
-                        <p className="text-sm text-gray-600">Ocupación</p>
+                        <p className="text-sm text-gray-600">Ocupación Actual</p>
                       </div>
                     </div>
                   </div>
@@ -492,9 +600,64 @@ export function Estadisticas() {
                         Estadísticas del Servicio: {servicios.find(s => s.id === servicioSeleccionado)?.nombre}
                       </h3>
 
-                      <p className="text-sm text-gray-500">
-                        Métricas detalladas del servicio en desarrollo...
-                      </p>
+                      {/* Información Global del Servicio */}
+                      <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-6">
+                        <h4 className="text-md font-semibold text-gray-800 mb-4">Información Global del Servicio</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                            <TrendingUp className="w-6 h-6 mx-auto mb-2 text-green-600" />
+                            <p className="text-2xl font-bold text-gray-800">
+                              {loadingServicioStats ? (
+                                <span className="text-sm text-gray-400">Cargando...</span>
+                              ) : ingresosServicio !== null ? (
+                                ingresosServicio
+                              ) : (
+                                '--'
+                              )}
+                            </p>
+                            <p className="text-sm text-gray-600">Ingresos ({diasPeriodo === 1 ? 'hoy' : `${diasPeriodo} días`})</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                            <ArrowUpDown className="w-6 h-6 mx-auto mb-2 text-blue-600" />
+                            <p className="text-2xl font-bold text-gray-800">
+                              {loadingServicioStats ? (
+                                <span className="text-sm text-gray-400">Cargando...</span>
+                              ) : egresosServicio !== null ? (
+                                egresosServicio
+                              ) : (
+                                '--'
+                              )}
+                            </p>
+                            <p className="text-sm text-gray-600">Egresos ({diasPeriodo === 1 ? 'hoy' : `${diasPeriodo} días`})</p>
+                          </div>
+                          <div className="bg-white rounded-lg p-4 text-center shadow-sm">
+                            <BarChart3 className="w-6 h-6 mx-auto mb-2 text-purple-600" />
+                            <p className="text-2xl font-bold text-gray-800">
+                              {loadingServicioStats ? (
+                                <span className="text-sm text-gray-400">Cargando...</span>
+                              ) : ocupacionServicio !== null ? (
+                                `${ocupacionServicio.tasa.toFixed(1)}%`
+                              ) : (
+                                '--'
+                              )}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              Ocupación ({ocupacionServicio ? `${ocupacionServicio.camas_ocupadas}/${ocupacionServicio.camas_totales}` : ''})
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Tiempos de Espera y Procesos del Servicio */}
+                      <div className="bg-white rounded-lg shadow p-6">
+                        <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                          <Clock className="w-5 h-5 text-orange-600" />
+                          Tiempos de Espera y Procesos
+                        </h4>
+                        <p className="text-sm text-gray-500">
+                          Los tiempos mostrados son a nivel de red. Filtrado por servicio en desarrollo...
+                        </p>
+                      </div>
                     </div>
                   ) : modoComparacion ? (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
@@ -560,10 +723,21 @@ export function Estadisticas() {
 
               {/* Tiempos de Hospitalización en Red */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h4 className="text-md font-semibold text-gray-800 mb-4">Tiempos de Hospitalización en Red</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {renderTiempoCard('Hospitalización en Red', estadisticasAvanzadas?.tiempo_hospitalizacion_red, <Activity className="w-4 h-4 text-blue-600" />)}
-                </div>
+                <h4 className="text-md font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-indigo-600" />
+                  Tiempos de Hospitalización en Red
+                </h4>
+                {loadingTiemposHosp ? (
+                  <div className="text-center py-8">
+                    <p className="text-sm text-gray-500">Cargando tiempos de hospitalización...</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {renderTiempoCard('Total (Todos los Pacientes)', tiempoHospTotal, <Activity className="w-4 h-4 text-indigo-600" />)}
+                    {renderTiempoCard('Solo Casos Especiales', tiempoHospCasosEspeciales, <AlertCircle className="w-4 h-4 text-yellow-600" />)}
+                    {renderTiempoCard('Sin Casos Especiales', tiempoHospSinCasosEspeciales, <Activity className="w-4 h-4 text-green-600" />)}
+                  </div>
+                )}
               </div>
 
               {/* Estadísticas por Hospital */}

@@ -822,6 +822,56 @@ export async function downloadEstadisticas(dias: number = 7, formato: 'json' | '
   return response.blob();
 }
 
+// ----- ESTADÍSTICAS POR HOSPITAL Y SERVICIO -----
+export interface IngresosEgresosResponse {
+  total: number;
+}
+
+export async function getIngresosHospital(hospitalId: string, dias: number = 1): Promise<IngresosEgresosResponse> {
+  return fetchApi<IngresosEgresosResponse>(`/estadisticas/ingresos/hospital/${hospitalId}?dias=${dias}`);
+}
+
+export async function getEgresosHospital(hospitalId: string, dias: number = 1): Promise<IngresosEgresosResponse> {
+  return fetchApi<IngresosEgresosResponse>(`/estadisticas/egresos/hospital/${hospitalId}?dias=${dias}`);
+}
+
+export async function getIngresosServicio(servicioId: string, dias: number = 1): Promise<IngresosEgresosResponse> {
+  return fetchApi<IngresosEgresosResponse>(`/estadisticas/ingresos/servicio/${servicioId}?dias=${dias}`);
+}
+
+export async function getEgresosServicio(servicioId: string, dias: number = 1): Promise<IngresosEgresosResponse> {
+  return fetchApi<IngresosEgresosResponse>(`/estadisticas/egresos/servicio/${servicioId}?dias=${dias}`);
+}
+
+export interface TasaOcupacion {
+  tasa: number;
+  camas_totales: number;
+  camas_ocupadas: number;
+}
+
+export async function getOcupacionHospital(hospitalId: string): Promise<TasaOcupacion> {
+  return fetchApi<TasaOcupacion>(`/estadisticas/ocupacion/hospital/${hospitalId}`);
+}
+
+export async function getOcupacionServicio(servicioId: string): Promise<TasaOcupacion> {
+  return fetchApi<TasaOcupacion>(`/estadisticas/ocupacion/servicio/${servicioId}`);
+}
+
+export async function getTiempoHospitalizacion(
+  hospitalId: string | null = null,
+  soloCasosEspeciales: boolean | null = null,
+  dias: number = 30
+): Promise<TiempoEstadistica> {
+  let url = `/estadisticas/tiempos/hospitalizacion?dias=${dias}`;
+  if (hospitalId) {
+    url += `&hospital_id=${hospitalId}`;
+  }
+  if (soloCasosEspeciales !== null) {
+    url += `&solo_casos_especiales=${soloCasosEspeciales}`;
+  }
+  return fetchApi<TiempoEstadistica>(url);
+}
+
 // ----- FALLECIMIENTO -----
 export async function completarEgresoFallecido(pacienteId: string): Promise<MessageResponse> {
   return fetchApi<MessageResponse>(`/manual/fallecido/${pacienteId}/completar-egreso`, {
