@@ -99,7 +99,7 @@ DB_MAX_OVERFLOW=5
 DB_POOL_RECYCLE=300
 """
 
-        with open('.env.production', 'w') as f:
+        with open('.env.production', 'w', encoding='utf-8') as f:
             f.write(env_content)
 
         print("✅ Archivo .env.production creado")
