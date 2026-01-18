@@ -21,23 +21,25 @@ from app.utils.logger import logger
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación."""
     logger.info("Iniciando aplicación...")
-    
+
     # Startup
-    create_db_and_tables()
-    logger.info("Base de datos inicializada")
-    
-    # Inicializar datos si es necesario
-    session = get_session_direct()
-    try:
-        from app.utils.init_data import inicializar_datos
-        inicializar_datos(session)
-        logger.info("Datos iniciales cargados")
-        
-        # Sincronizar colas de prioridad
-        sincronizar_colas_iniciales(session)
-        logger.info("Colas de prioridad sincronizadas")
-    finally:
-        session.close()
+    # create_db_and_tables()  # COMENTADO: Las tablas ya existen en Supabase
+    logger.info("Saltando creación de tablas (ya existen en Supabase)")
+
+    # # Inicializar datos si es necesario
+    # session = get_session_direct()
+    # try:
+    #     from app.utils.init_data import inicializar_datos
+    #     inicializar_datos(session)
+    #     logger.info("Datos iniciales cargados")
+    #
+    #     # Sincronizar colas de prioridad
+    #     sincronizar_colas_iniciales(session)
+    #     logger.info("Colas de prioridad sincronizadas")
+    # finally:
+    #     session.close()
+
+    logger.info("Aplicación iniciada correctamente")
     
     # Iniciar proceso automático en background
     task = asyncio.create_task(proceso_automatico())
