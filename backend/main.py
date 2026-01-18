@@ -40,19 +40,20 @@ async def lifespan(app: FastAPI):
     #     session.close()
 
     logger.info("Aplicación iniciada correctamente")
-    
-    # Iniciar proceso automático en background
-    task = asyncio.create_task(proceso_automatico())
-    logger.info("Proceso automático iniciado")
-    
+
+    # # Iniciar proceso automático en background
+    # # COMENTADO: Causa errores de conexión IPv6 en Railway
+    # task = asyncio.create_task(proceso_automatico())
+    # logger.info("Proceso automático iniciado")
+
     yield
-    
-    # Shutdown
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+
+    # # Shutdown
+    # task.cancel()
+    # try:
+    #     await task
+    # except asyncio.CancelledError:
+    #     pass
     logger.info("Aplicación detenida")
 
 
