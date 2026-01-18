@@ -13,7 +13,7 @@
 -- 1. TABLA: HOSPITAL (sin dependencias)
 -- ============================================
 CREATE TABLE hospital (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     nombre VARCHAR NOT NULL,
     codigo VARCHAR NOT NULL UNIQUE,
     es_central BOOLEAN NOT NULL DEFAULT FALSE,
@@ -29,7 +29,7 @@ CREATE INDEX ix_hospital_nombre ON hospital (nombre);
 -- 2. TABLA: USUARIOS (sin dependencias)
 -- ============================================
 CREATE TABLE usuarios (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     username VARCHAR(50) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     hashed_password VARCHAR(255) NOT NULL,
@@ -54,7 +54,7 @@ CREATE INDEX ix_usuarios_servicio_id ON usuarios (servicio_id);
 -- 3. TABLA: REFRESH_TOKENS (depende de usuarios)
 -- ============================================
 CREATE TABLE refresh_tokens (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     token VARCHAR NOT NULL UNIQUE,
     user_id VARCHAR NOT NULL,
     expires_at TIMESTAMP NOT NULL,
@@ -74,7 +74,7 @@ CREATE INDEX ix_refresh_tokens_user_id ON refresh_tokens (user_id);
 -- 4. TABLA: SERVICIO (depende de hospital)
 -- ============================================
 CREATE TABLE servicio (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     nombre VARCHAR NOT NULL,
     codigo VARCHAR NOT NULL,
     tipo VARCHAR NOT NULL,
@@ -91,7 +91,7 @@ CREATE INDEX ix_servicio_hospital_id ON servicio (hospital_id);
 -- 5. TABLA: SALA (depende de servicio)
 -- ============================================
 CREATE TABLE sala (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     numero INTEGER NOT NULL,
     servicio_id VARCHAR NOT NULL,
     es_individual BOOLEAN NOT NULL DEFAULT FALSE,
@@ -106,7 +106,7 @@ CREATE INDEX ix_sala_servicio_id ON sala (servicio_id);
 -- 6. TABLA: CAMA (depende de sala)
 -- ============================================
 CREATE TABLE cama (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     numero INTEGER NOT NULL,
     letra VARCHAR,
     identificador VARCHAR NOT NULL,
@@ -129,7 +129,7 @@ CREATE INDEX ix_cama_estado ON cama (estado);
 -- 7. TABLA: PACIENTE (depende de hospital y cama)
 -- ============================================
 CREATE TABLE paciente (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     -- Datos personales
     nombre VARCHAR NOT NULL,
     run VARCHAR NOT NULL,
@@ -219,7 +219,7 @@ CREATE INDEX ix_paciente_fallecido ON paciente (fallecido);
 -- 8. TABLA: EVENTO_PACIENTE (depende de paciente, hospital, servicio, cama)
 -- ============================================
 CREATE TABLE evento_paciente (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     -- Tipo de evento y timestamp
     tipo_evento VARCHAR NOT NULL,
     timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -257,7 +257,7 @@ CREATE INDEX ix_evento_paciente_dia_clinico ON evento_paciente (dia_clinico);
 -- 9. TABLA: CONFIGURACIONSISTEMA (sin dependencias)
 -- ============================================
 CREATE TABLE configuracionsistema (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     -- Modo de operación
     modo_manual BOOLEAN NOT NULL DEFAULT FALSE,
     -- Tiempos de procesos automáticos (en segundos)
@@ -272,7 +272,7 @@ CREATE TABLE configuracionsistema (
 -- 10. TABLA: LOGACTIVIDAD (sin dependencias de FK)
 -- ============================================
 CREATE TABLE logactividad (
-    id VARCHAR NOT NULL PRIMARY KEY,
+    id VARCHAR NOT NULL,
     -- Tipo de actividad
     tipo VARCHAR NOT NULL,
     descripcion TEXT NOT NULL,
