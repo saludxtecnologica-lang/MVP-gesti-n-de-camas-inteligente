@@ -2,12 +2,12 @@
 Endpoint temporal para inicializar usuarios.
 Solo para desarrollo - ELIMINAR EN PRODUCCIÓN
 """
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends
+from sqlmodel import Session, select, text
+from passlib.context import CryptContext
+import uuid
 
 from app.core.database import get_session
-from app.models.usuario import Usuario, RolEnum
-from passlib.context import CryptContext
 
 router = APIRouter(prefix="/dev", tags=["dev"])
 
@@ -20,21 +20,21 @@ USUARIOS_BASICOS = [
         "email": "programador@hospital.cl",
         "password": "Programador123!",
         "nombre_completo": "Equipo Programador",
-        "rol": "PROGRAMADOR",  # MAYÚSCULAS para coincidir con enum de PostgreSQL
+        "rol": "PROGRAMADOR",
     },
     {
         "username": "gestor_camas",
         "email": "gestor.camas@hospital.cl",
         "password": "GestorCamas123!",
         "nombre_completo": "Gestor de Camas",
-        "rol": "GESTOR_CAMAS",  # MAYÚSCULAS
+        "rol": "GESTOR_CAMAS",
     },
     {
         "username": "directivo_red",
         "email": "directivo.red@hospital.cl",
         "password": "DirectivoRed123!",
         "nombre_completo": "Director de Red",
-        "rol": "DIRECTIVO_RED",  # MAYÚSCULAS
+        "rol": "DIRECTIVO_RED",
     },
 ]
 
@@ -60,42 +60,55 @@ def init_users_post(session: Session = Depends(get_session)):
 
 
 def _create_users(session: Session):
-    """Lógica común para crear usuarios."""
+    """Lógica común para crear usuarios usando SQL directo."""
     created_users = []
     errors = []
 
     try:
-        # Primero verificar si podemos leer de la tabla
+        # Verificar usuarios existentes
         try:
-            existing_users = session.exec(select(Usuario)).all()
-            existing_count = len(existing_users)
-            existing_usernames = [u.username for u in existing_users]
+            result = session.exec(text("SELECT username FROM usuarios"))
+            existing_usernames = [row[0] for row in result]
+            existing_count = len(existing_usernames)
         except Exception as e:
             return {
                 "status": "error",
-                "message": "No se puede leer de la tabla usuarios. Probablemente RLS está bloqueando.",
+                "message": "No se puede leer de la tabla usuarios.",
                 "error": str(e),
-                "solution": "Verifica que RLS esté deshabilitado en Supabase o que uses SUPABASE_SERVICE_ROLE_KEY"
+                "solution": "Verifica RLS o DATABASE_URL"
             }
 
+        # Insertar usuarios con SQL directo (evita validación del modelo)
         for user_data in USUARIOS_BASICOS:
             try:
                 # Verificar si ya existe
                 if user_data["username"] in existing_usernames:
                     continue
 
-                # Crear usuario
-                usuario = Usuario(
-                    username=user_data["username"],
-                    email=user_data["email"],
-                    hashed_password=pwd_context.hash(user_data["password"]),
-                    nombre_completo=user_data["nombre_completo"],
-                    rol=user_data["rol"],
-                    is_active=True,
-                    is_verified=True,
+                # Generar ID y hash de contraseña
+                user_id = str(uuid.uuid4())
+                hashed_pwd = pwd_context.hash(user_data["password"])
+
+                # INSERT directo con SQL
+                sql = text("""
+                    INSERT INTO usuarios
+                    (id, username, email, hashed_password, nombre_completo, rol, is_active, is_verified, created_at, updated_at)
+                    VALUES
+                    (:id, :username, :email, :password, :nombre, :rol, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """)
+
+                session.exec(
+                    sql,
+                    {
+                        "id": user_id,
+                        "username": user_data["username"],
+                        "email": user_data["email"],
+                        "password": hashed_pwd,
+                        "nombre": user_data["nombre_completo"],
+                        "rol": user_data["rol"]
+                    }
                 )
 
-                session.add(usuario)
                 created_users.append(user_data["username"])
 
             except Exception as e:
@@ -104,15 +117,17 @@ def _create_users(session: Session):
                     "error": str(e)
                 })
 
+        # Commit si hay usuarios creados
         if created_users:
             try:
                 session.commit()
             except Exception as e:
+                session.rollback()
                 return {
                     "status": "error",
-                    "message": "No se pudo hacer commit. Probablemente RLS está bloqueando INSERT.",
+                    "message": "No se pudo hacer commit.",
                     "error": str(e),
-                    "solution": "Deshabilita RLS en la tabla 'usuarios' en Supabase Dashboard"
+                    "solution": "Verifica RLS en Supabase"
                 }
 
         return {
@@ -121,7 +136,7 @@ def _create_users(session: Session):
             "existing_users": existing_usernames,
             "total_users_in_db": existing_count + len(created_users),
             "errors": errors if errors else None,
-            "message": f"✅ Creados {len(created_users)} usuarios nuevos. Total en DB: {existing_count + len(created_users)}"
+            "message": f"✅ Creados {len(created_users)} usuarios. Total: {existing_count + len(created_users)}"
         }
 
     except Exception as e:
@@ -129,5 +144,5 @@ def _create_users(session: Session):
             "status": "error",
             "message": "Error general al crear usuarios",
             "error": str(e),
-            "hint": "Verifica RLS en Supabase, políticas de seguridad, o la configuración de DATABASE_URL"
+            "hint": "Verifica RLS, políticas de seguridad, o DATABASE_URL"
         }
