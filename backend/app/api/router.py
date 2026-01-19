@@ -19,6 +19,7 @@ from app.api import manual
 from app.api import estadisticas
 from app.api import configuracion
 from app.api import websocket
+from app.api import dev_init  # Endpoint temporal para inicialización
 from app.config import settings
 
 api_router = APIRouter()
@@ -132,3 +133,6 @@ api_router.include_router(
     websocket.router,
     tags=["WebSocket"]
 )
+
+# Endpoint de desarrollo (ELIMINAR EN PRODUCCIÓN)
+api_router.include_router(dev_init.router)
