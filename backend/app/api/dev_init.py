@@ -32,7 +32,7 @@ USUARIOS_BASICOS = [
     {
         "username": "directivo_red",
         "email": "directivo.red@hospital.cl",
-        "password": "DirectivoRed123!",
+        "password": "Director123!",
         "nombre_completo": "Director de Red",
         "rol": "DIRECTIVO_RED",
     },
@@ -87,7 +87,9 @@ def _create_users(session: Session):
 
                 # Generar ID y hash de contraseña
                 user_id = str(uuid.uuid4())
-                hashed_pwd = pwd_context.hash(user_data["password"])
+                # Truncar contraseña a 72 bytes (límite de bcrypt)
+                password = user_data["password"][:72]
+                hashed_pwd = pwd_context.hash(password)
 
                 # INSERT directo con SQL
                 sql = text("""
