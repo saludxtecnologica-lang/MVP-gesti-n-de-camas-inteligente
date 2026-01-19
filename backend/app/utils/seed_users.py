@@ -17,10 +17,39 @@ from app.models.usuario import Usuario, RolEnum
 # ============================================
 # USUARIOS DE PRUEBA
 # ============================================
-# Las credenciales de prueba han sido eliminadas por seguridad.
-# Los usuarios deben crearse manualmente en producción con credenciales seguras.
+# IMPORTANTE: Estas son credenciales de desarrollo/demo
+# En producción, crear usuarios con credenciales seguras
 
-USUARIOS_PRUEBA = []
+USUARIOS_PRUEBA = [
+    {
+        "username": "admin",
+        "email": "admin@hospital.cl",
+        "password": "Admin123!",
+        "nombre_completo": "Administrador Sistema",
+        "rol": RolEnum.ADMINISTRADOR
+    },
+    {
+        "username": "gestor",
+        "email": "gestor@hospital.cl",
+        "password": "Gestor123!",
+        "nombre_completo": "Gestor Camas",
+        "rol": RolEnum.GESTOR_CAMAS
+    },
+    {
+        "username": "medico",
+        "email": "medico@hospital.cl",
+        "password": "Medico123!",
+        "nombre_completo": "Dr. Juan Pérez",
+        "rol": RolEnum.MEDICO
+    },
+    {
+        "username": "enfermera",
+        "email": "enfermera@hospital.cl",
+        "password": "Enfermera123!",
+        "nombre_completo": "Enf. María González",
+        "rol": RolEnum.ENFERMERA
+    }
+]
 
 
 def hash_password(password: str) -> str:
