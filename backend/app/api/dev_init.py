@@ -20,21 +20,21 @@ USUARIOS_BASICOS = [
         "email": "programador@hospital.cl",
         "password": "Programador123!",
         "nombre_completo": "Equipo Programador",
-        "rol": "programador",  # Valor directo del enum
+        "rol": "PROGRAMADOR",  # MAYÚSCULAS para coincidir con enum de PostgreSQL
     },
     {
         "username": "gestor_camas",
         "email": "gestor.camas@hospital.cl",
         "password": "GestorCamas123!",
         "nombre_completo": "Gestor de Camas",
-        "rol": "gestor_camas",
+        "rol": "GESTOR_CAMAS",  # MAYÚSCULAS
     },
     {
         "username": "directivo_red",
         "email": "directivo.red@hospital.cl",
         "password": "DirectivoRed123!",
         "nombre_completo": "Director de Red",
-        "rol": "directivo_red",
+        "rol": "DIRECTIVO_RED",  # MAYÚSCULAS
     },
 ]
 
