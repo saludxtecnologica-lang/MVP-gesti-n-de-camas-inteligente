@@ -1,144 +1,145 @@
 """
 Enumeraciones del sistema.
 Centralizadas para evitar imports circulares.
+IMPORTANTE: Todos los valores están en MAYÚSCULAS para coincidir con PostgreSQL.
 """
 from enum import Enum
 
 
 class TipoPacienteEnum(str, Enum):
     """Tipo de origen del paciente."""
-    URGENCIA = "urgencia"
-    AMBULATORIO = "ambulatorio"
-    HOSPITALIZADO = "hospitalizado"
-    DERIVADO = "derivado"
+    URGENCIA = "URGENCIA"
+    AMBULATORIO = "AMBULATORIO"
+    HOSPITALIZADO = "HOSPITALIZADO"
+    DERIVADO = "DERIVADO"
 
 
 class SexoEnum(str, Enum):
     """Sexo biológico del paciente."""
-    HOMBRE = "hombre"
-    MUJER = "mujer"
+    HOMBRE = "HOMBRE"
+    MUJER = "MUJER"
 
 
 class EdadCategoriaEnum(str, Enum):
     """Categoría de edad del paciente."""
-    PEDIATRICO = "pediatrico"      # 0-14 años
-    ADULTO = "adulto"              # 15-59 años
-    ADULTO_MAYOR = "adulto_mayor"  # 60+ años
+    PEDIATRICO = "PEDIATRICO"      # 0-14 años
+    ADULTO = "ADULTO"              # 15-59 años
+    ADULTO_MAYOR = "ADULTO_MAYOR"  # 60+ años
 
 
 class TipoEnfermedadEnum(str, Enum):
     """Tipo de enfermedad principal."""
-    MEDICA = "medica"
-    QUIRURGICA = "quirurgica"
-    TRAUMATOLOGICA = "traumatologica"
-    NEUROLOGICA = "neurologica"
-    UROLOGICA = "urologica"
-    GERIATRICA = "geriatrica"
-    GINECOLOGICA = "ginecologica"
-    OBSTETRICA = "obstetrica"
+    MEDICA = "MEDICA"
+    QUIRURGICA = "QUIRURGICA"
+    TRAUMATOLOGICA = "TRAUMATOLOGICA"
+    NEUROLOGICA = "NEUROLOGICA"
+    UROLOGICA = "UROLOGICA"
+    GERIATRICA = "GERIATRICA"
+    GINECOLOGICA = "GINECOLOGICA"
+    OBSTETRICA = "OBSTETRICA"
 
 
 class TipoAislamientoEnum(str, Enum):
     """Tipo de aislamiento requerido."""
-    NINGUNO = "ninguno"
-    CONTACTO = "contacto"
-    GOTITAS = "gotitas"
-    AEREO = "aereo"
-    AMBIENTE_PROTEGIDO = "ambiente_protegido"
-    ESPECIAL = "especial"
+    NINGUNO = "NINGUNO"
+    CONTACTO = "CONTACTO"
+    GOTITAS = "GOTITAS"
+    AEREO = "AEREO"
+    AMBIENTE_PROTEGIDO = "AMBIENTE_PROTEGIDO"
+    ESPECIAL = "ESPECIAL"
 
 
 class ComplejidadEnum(str, Enum):
     """Nivel de complejidad asistencial requerida."""
-    NINGUNA = "ninguna"
-    BAJA = "baja"
-    MEDIA = "media"  # UTI
-    ALTA = "alta"    # UCI
+    NINGUNA = "NINGUNA"
+    BAJA = "BAJA"
+    MEDIA = "MEDIA"  # UTI
+    ALTA = "ALTA"    # UCI
 
 
 class TipoServicioEnum(str, Enum):
     """Tipo de servicio hospitalario."""
-    UCI = "uci"
-    UTI = "uti"
-    MEDICINA = "medicina"
-    AISLAMIENTO = "aislamiento"
-    CIRUGIA = "cirugia"
-    OBSTETRICIA = "obstetricia"
-    PEDIATRIA = "pediatria"
-    MEDICO_QUIRURGICO = "medico_quirurgico"
+    UCI = "UCI"
+    UTI = "UTI"
+    MEDICINA = "MEDICINA"
+    AISLAMIENTO = "AISLAMIENTO"
+    CIRUGIA = "CIRUGIA"
+    OBSTETRICIA = "OBSTETRICIA"
+    PEDIATRIA = "PEDIATRIA"
+    MEDICO_QUIRURGICO = "MEDICO_QUIRURGICO"
 
 
 class EstadoCamaEnum(str, Enum):
     """Estado de una cama hospitalaria."""
-    LIBRE = "libre"
-    OCUPADA = "ocupada"
-    TRASLADO_ENTRANTE = "traslado_entrante"
-    CAMA_EN_ESPERA = "cama_en_espera"
-    TRASLADO_SALIENTE = "traslado_saliente"
-    TRASLADO_CONFIRMADO = "traslado_confirmado"
-    ALTA_SUGERIDA = "alta_sugerida"
-    CAMA_ALTA = "cama_alta"
-    EN_LIMPIEZA = "en_limpieza"
-    BLOQUEADA = "bloqueada"
-    ESPERA_DERIVACION = "espera_derivacion"
-    DERIVACION_CONFIRMADA = "derivacion_confirmada"
+    LIBRE = "LIBRE"
+    OCUPADA = "OCUPADA"
+    TRASLADO_ENTRANTE = "TRASLADO_ENTRANTE"
+    CAMA_EN_ESPERA = "CAMA_EN_ESPERA"
+    TRASLADO_SALIENTE = "TRASLADO_SALIENTE"
+    TRASLADO_CONFIRMADO = "TRASLADO_CONFIRMADO"
+    ALTA_SUGERIDA = "ALTA_SUGERIDA"
+    CAMA_ALTA = "CAMA_ALTA"
+    EN_LIMPIEZA = "EN_LIMPIEZA"
+    BLOQUEADA = "BLOQUEADA"
+    ESPERA_DERIVACION = "ESPERA_DERIVACION"
+    DERIVACION_CONFIRMADA = "DERIVACION_CONFIRMADA"
     # ============================================
     # NUEVO ESTADO: PACIENTE FALLECIDO
     # ============================================
-    FALLECIDO = "fallecido"
+    FALLECIDO = "FALLECIDO"
     # ============================================
     # NUEVO ESTADO: CAMA RESERVADA PARA DERIVACIÓN
     # ============================================
-    RESERVADA = "reservada"
+    RESERVADA = "RESERVADA"
 
 
 class EstadoListaEsperaEnum(str, Enum):
     """Estado del paciente en lista de espera."""
-    ESPERANDO = "esperando"
-    BUSCANDO = "buscando"
-    ASIGNADO = "asignado"
+    ESPERANDO = "ESPERANDO"
+    BUSCANDO = "BUSCANDO"
+    ASIGNADO = "ASIGNADO"
 
 
 class TipoEventoEnum(str, Enum):
     """Tipo de evento del paciente en el sistema."""
     # Ingresos
-    INGRESO_URGENCIA = "ingreso_urgencia"
-    INGRESO_AMBULATORIO = "ingreso_ambulatorio"
+    INGRESO_URGENCIA = "INGRESO_URGENCIA"
+    INGRESO_AMBULATORIO = "INGRESO_AMBULATORIO"
 
     # Asignación de cama
-    CAMA_ASIGNADA = "cama_asignada"
-    BUSQUEDA_CAMA_INICIADA = "busqueda_cama_iniciada"
+    CAMA_ASIGNADA = "CAMA_ASIGNADA"
+    BUSQUEDA_CAMA_INICIADA = "BUSQUEDA_CAMA_INICIADA"
 
     # Traslados internos
-    TRASLADO_INICIADO = "traslado_iniciado"
-    TRASLADO_CONFIRMADO = "traslado_confirmado"
-    TRASLADO_COMPLETADO = "traslado_completado"
-    TRASLADO_CANCELADO = "traslado_cancelado"
-    CAMA_EN_ESPERA_INICIO = "cama_en_espera_inicio"
-    CAMA_EN_ESPERA_FIN = "cama_en_espera_fin"
+    TRASLADO_INICIADO = "TRASLADO_INICIADO"
+    TRASLADO_CONFIRMADO = "TRASLADO_CONFIRMADO"
+    TRASLADO_COMPLETADO = "TRASLADO_COMPLETADO"
+    TRASLADO_CANCELADO = "TRASLADO_CANCELADO"
+    CAMA_EN_ESPERA_INICIO = "CAMA_EN_ESPERA_INICIO"
+    CAMA_EN_ESPERA_FIN = "CAMA_EN_ESPERA_FIN"
 
     # Derivaciones
-    DERIVACION_SOLICITADA = "derivacion_solicitada"
-    DERIVACION_ACEPTADA = "derivacion_aceptada"
-    DERIVACION_RECHAZADA = "derivacion_rechazada"
-    DERIVACION_CAMA_ASIGNADA = "derivacion_cama_asignada"
-    DERIVACION_EGRESO_CONFIRMADO = "derivacion_egreso_confirmado"
-    DERIVACION_COMPLETADA = "derivacion_completada"
+    DERIVACION_SOLICITADA = "DERIVACION_SOLICITADA"
+    DERIVACION_ACEPTADA = "DERIVACION_ACEPTADA"
+    DERIVACION_RECHAZADA = "DERIVACION_RECHAZADA"
+    DERIVACION_CAMA_ASIGNADA = "DERIVACION_CAMA_ASIGNADA"
+    DERIVACION_EGRESO_CONFIRMADO = "DERIVACION_EGRESO_CONFIRMADO"
+    DERIVACION_COMPLETADA = "DERIVACION_COMPLETADA"
 
     # Altas
-    ALTA_SUGERIDA = "alta_sugerida"
-    ALTA_INICIADA = "alta_iniciada"
-    ALTA_COMPLETADA = "alta_completada"
-    ALTA_CANCELADA = "alta_cancelada"
+    ALTA_SUGERIDA = "ALTA_SUGERIDA"
+    ALTA_INICIADA = "ALTA_INICIADA"
+    ALTA_COMPLETADA = "ALTA_COMPLETADA"
+    ALTA_CANCELADA = "ALTA_CANCELADA"
 
     # Fallecimientos
-    FALLECIDO_MARCADO = "fallecido_marcado"
-    FALLECIDO_EGRESADO = "fallecido_egresado"
+    FALLECIDO_MARCADO = "FALLECIDO_MARCADO"
+    FALLECIDO_EGRESADO = "FALLECIDO_EGRESADO"
 
     # Egresos
-    EGRESO_ALTA = "egreso_alta"
-    EGRESO_FALLECIDO = "egreso_fallecido"
-    EGRESO_DERIVACION = "egreso_derivacion"
+    EGRESO_ALTA = "EGRESO_ALTA"
+    EGRESO_FALLECIDO = "EGRESO_FALLECIDO"
+    EGRESO_DERIVACION = "EGRESO_DERIVACION"
 
 
 # ============================================
@@ -194,8 +195,8 @@ OXIGENO_UCI_COMPLEJIDAD = [
 
 # Todos los requerimientos de oxígeno
 TODOS_REQUERIMIENTOS_OXIGENO = (
-    OXIGENO_BAJA_COMPLEJIDAD + 
-    OXIGENO_UTI_COMPLEJIDAD + 
+    OXIGENO_BAJA_COMPLEJIDAD +
+    OXIGENO_UTI_COMPLEJIDAD +
     OXIGENO_UCI_COMPLEJIDAD
 )
 
