@@ -32,14 +32,19 @@ def fix_passwords(session: Session = Depends(get_session)):
 
     Disponible como GET y POST para facilitar ejecución desde navegador.
     """
+    import bcrypt
+
     updated_users = []
     errors = []
 
     try:
         for username, plain_password in USUARIOS_PASSWORDS.items():
             try:
-                # Generar hash correcto
-                hashed_pwd = pwd_context.hash(plain_password[:72])  # Truncar a 72 bytes
+                # Generar hash correcto usando bcrypt directamente
+                # Convertir a bytes y hashear
+                password_bytes = plain_password.encode('utf-8')
+                salt = bcrypt.gensalt()
+                hashed_pwd = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
 
                 # Actualizar contraseña usando SQL directo
                 update_sql = text("""
@@ -57,7 +62,8 @@ def fix_passwords(session: Session = Depends(get_session)):
                     updated_users.append({
                         "username": username,
                         "password": plain_password,
-                        "hash_length": len(hashed_pwd)
+                        "hash_length": len(hashed_pwd),
+                        "hash_prefix": hashed_pwd[:7]
                     })
                 else:
                     errors.append({
