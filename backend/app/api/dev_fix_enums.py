@@ -41,6 +41,12 @@ ENUM_MAPPINGS = {
         "hombre": "HOMBRE",
         "mujer": "MUJER",
     },
+    # EdadCategoriaEnum
+    "edadcategoriaenum": {
+        "pediatrico": "PEDIATRICO",
+        "adulto": "ADULTO",
+        "adulto_mayor": "ADULTO_MAYOR",
+    },
     # TipoEnfermedadEnum
     "tipoenfermedadenum": {
         "medica": "MEDICA",
@@ -93,6 +99,7 @@ TABLE_COLUMN_ENUM_MAP = {
     "paciente": [
         ("tipo_paciente", "tipopacienteenum"),
         ("sexo", "sexoenum"),
+        ("edad_categoria", "edadcategoriaenum"),
         ("tipo_enfermedad", "tipoenfermedadenum"),
         ("tipo_aislamiento", "tipoaislamientoenum"),
         ("complejidad_requerida", "complejidadenum"),
