@@ -64,7 +64,8 @@ def update_roles_to_uppercase(session: Session = Depends(get_session)):
                     WHERE id = :user_id
                 """)
 
-                session.exec(update_sql, {"new_rol": new_rol, "user_id": user_id})
+                # Usar execute() en lugar de exec() para pasar parámetros
+                session.execute(update_sql, {"new_rol": new_rol, "user_id": user_id})
 
                 updated_users.append({
                     "username": username,

@@ -99,7 +99,8 @@ def _create_users(session: Session):
                     (:id, :username, :email, :password, :nombre, :rol, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """)
 
-                session.exec(
+                # Usar execute() en lugar de exec() para pasar parámetros
+                session.execute(
                     sql,
                     {
                         "id": user_id,
