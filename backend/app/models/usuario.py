@@ -30,37 +30,37 @@ class RolEnum(str, Enum):
         - TENS: Técnico de enfermería de nivel superior
     """
     # Capa 1: Administración y Red
-    PROGRAMADOR = "programador"
-    DIRECTIVO_RED = "directivo_red"
+    PROGRAMADOR = "PROGRAMADOR"
+    DIRECTIVO_RED = "DIRECTIVO_RED"
 
     # Capa 2: Gestión Local
-    DIRECTIVO_HOSPITAL = "directivo_hospital"
-    GESTOR_CAMAS = "gestor_camas"
+    DIRECTIVO_HOSPITAL = "DIRECTIVO_HOSPITAL"
+    GESTOR_CAMAS = "GESTOR_CAMAS"
 
     # Capa 3: Clínica
-    MEDICO = "medico"
-    ENFERMERA = "enfermera"
-    TENS = "tens"
+    MEDICO = "MEDICO"
+    ENFERMERA = "ENFERMERA"
+    TENS = "TENS"
 
     # Roles de servicio específicos
-    JEFE_SERVICIO = "jefe_servicio"
-    SUPERVISORA_ENFERMERIA = "supervisora_enfermeria"
-    URGENCIAS = "urgencias"
-    JEFE_URGENCIAS = "jefe_urgencias"
-    AMBULATORIO = "ambulatorio"
+    JEFE_SERVICIO = "JEFE_SERVICIO"
+    SUPERVISORA_ENFERMERIA = "SUPERVISORA_ENFERMERIA"
+    URGENCIAS = "URGENCIAS"
+    JEFE_URGENCIAS = "JEFE_URGENCIAS"
+    AMBULATORIO = "AMBULATORIO"
 
     # Roles especializados
-    DERIVACIONES = "derivaciones"
-    ESTADISTICAS = "estadisticas"
-    VISUALIZADOR = "visualizador"
-    LIMPIEZA = "limpieza"
+    DERIVACIONES = "DERIVACIONES"
+    ESTADISTICAS = "ESTADISTICAS"
+    VISUALIZADOR = "VISUALIZADOR"
+    LIMPIEZA = "LIMPIEZA"
 
     # Aliases para compatibilidad
-    SUPER_ADMIN = "programador"
-    ADMIN = "gestor_camas"
-    COORDINADOR_RED = "directivo_red"
-    COORDINADOR_CAMAS = "gestor_camas"
-    OPERADOR = "visualizador"
+    SUPER_ADMIN = "PROGRAMADOR"
+    ADMIN = "GESTOR_CAMAS"
+    COORDINADOR_RED = "DIRECTIVO_RED"
+    COORDINADOR_CAMAS = "GESTOR_CAMAS"
+    OPERADOR = "VISUALIZADOR"
 
 
 class PermisoEnum(str, Enum):
