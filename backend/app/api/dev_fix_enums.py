@@ -95,7 +95,6 @@ TABLE_COLUMN_ENUM_MAP = {
         ("sexo", "sexoenum"),
         ("tipo_enfermedad", "tipoenfermedadenum"),
         ("tipo_aislamiento", "tipoaislamientoenum"),
-        ("complejidad", "complejidadenum"),
         ("complejidad_requerida", "complejidadenum"),
         ("estado_lista_espera", "estadolistaesperaenum"),
     ],
@@ -148,6 +147,7 @@ def update_all_enums(session: Session = Depends(get_session)):
                                 updated_count += result.rowcount
 
                         except Exception as e:
+                            session.rollback()  # Rollback en caso de error
                             errors.append({
                                 "table": table_name,
                                 "column": column_name,
@@ -163,17 +163,16 @@ def update_all_enums(session: Session = Depends(get_session)):
                             "enum_type": enum_type,
                             "updated_rows": updated_count
                         })
+                        # Commit después de cada columna exitosa
+                        session.commit()
 
                 except Exception as e:
+                    session.rollback()
                     errors.append({
                         "table": table_name,
                         "column": column_name,
                         "error": str(e)
                     })
-
-        # Commit todos los cambios
-        if results:
-            session.commit()
 
         total_updated = sum(r["updated_rows"] for r in results)
 
