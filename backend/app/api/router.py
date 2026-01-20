@@ -21,6 +21,7 @@ from app.api import configuracion
 from app.api import websocket
 from app.api import dev_init  # Endpoint temporal para inicialización
 from app.api import dev_debug  # Endpoint temporal para debug
+from app.api import dev_fix_roles  # Endpoint temporal para arreglar roles
 from app.config import settings
 
 api_router = APIRouter()
@@ -138,3 +139,4 @@ api_router.include_router(
 # Endpoints de desarrollo (ELIMINAR EN PRODUCCIÓN)
 api_router.include_router(dev_init.router)
 api_router.include_router(dev_debug.router)
+api_router.include_router(dev_fix_roles.router)
