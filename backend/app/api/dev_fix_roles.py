@@ -31,11 +31,14 @@ ROLE_MAPPING = {
 }
 
 
+@router.get("/update-roles-to-uppercase")
 @router.post("/update-roles-to-uppercase")
 def update_roles_to_uppercase(session: Session = Depends(get_session)):
     """
     Actualiza todos los roles de minúsculas a MAYÚSCULAS.
     ⚠️ SOLO PARA DESARROLLO - EJECUTAR UNA SOLA VEZ
+
+    Disponible como GET y POST para facilitar ejecución desde navegador.
     """
     updated_users = []
     errors = []
